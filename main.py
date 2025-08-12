@@ -49,8 +49,8 @@ class FreeAutoTradingBot:
         self.bot_status = 'Initializing'
         self.total_trades_today = 0
         self.win_rate = 0
-        self.target_profit = 1.8  # 1.8% target profit change (realistic for intraday)
-        self.stop_loss = 0.6   # 0.6% stop loss (R:R = 2:1)
+        self.target_profit = 1.0  # 1.0% target profit change (reducedrealistic for intraday)
+        self.stop_loss = 0.5   # 0.5% stop loss (R:R = 2:1 reduced)
         self.daily_stock_list = []
         self._cache_lock = threading.Lock()
         self._last_cache_update = None
@@ -61,7 +61,7 @@ class FreeAutoTradingBot:
 
         # Risk management
         self.RISK_PER_TRADE = 0.04  # 4% of capital per trade
-        self.MAX_POSITIONS = 5  # Maximum 5 simultaneous positions
+        self.MAX_POSITIONS = 6  # Maximum 5 simultaneous positions
 
         # Set up logging
         logging.basicConfig(level=logging.INFO,
@@ -172,78 +172,158 @@ class FreeAutoTradingBot:
         # top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
         # self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
         # return top_stocks
+
     
-    def select_precise_stocks_for_trading(self):
-    """Final precise stock selection combining all factors"""
-    
-    print("🎯 Starting precise stock selection...")
-    
-    # Step 1: Get today's market leaders
-    market_leaders = self.get_todays_market_leaders()
-    all_candidates = (market_leaders['top_gainers'][:8] + 
-                     market_leaders['top_losers'][:8])
-    
-    # Step 2: Identify strong sectors
-    strong_sectors = self.identify_strong_sectors_today()
-    
-    # Step 3: Add sector leaders to candidates
-    for sector, data in list(strong_sectors.items())[:3]:  # Top 3 sectors
-        for stock in data['strong_stocks'][:2]:  # Top 2 stocks per sector
-            if stock['symbol'] not in [s['symbol'] for s in all_candidates]:
-                all_candidates.append({
-                    'symbol': stock['symbol'],
-                    'price_change': stock['change'],
-                    'range': abs(stock['change']) * 1.2,  # Estimate
-                    'sector': sector
-                })
-    
-    # Step 4: Apply liquidity filter
-    liquid_stocks = self.filter_by_liquidity_and_volume(all_candidates)
-    
-    # Step 5: Final scoring and selection
-    final_selection = []
-    
-    for stock in liquid_stocks[:15]:  # Top 15 after filtering
-        symbol = stock['symbol']
+    def get_todays_market_leaders(self):
+        """Get stocks with highest price movement and volume today"""
         
-        # Calculate composite score
-        movement_score = abs(stock['price_change']) * 0.3
-        range_score = stock['range'] * 0.4
-        volume_score = min(stock.get('volume_ratio', 1), 3) * 0.3
+        market_movers = {
+            'top_gainers': [],
+            'top_losers': [],
+        }
         
-        composite_score = movement_score + range_score + volume_score
+        # NSE most active stocks
+        nse_top_stocks = [
+            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'KOTAKBANK',
+            'HINDUNILVR', 'SBIN', 'BHARTIARTL', 'ITC', 'ASIANPAINT', 'MARUTI',
+            'AXISBANK', 'LT', 'ULTRACEMCO', 'TITAN', 'SUNPHARMA', 'POWERGRID',
+            'NTPC', 'ONGC', 'TATASTEEL', 'JSWSTEEL', 'HINDALCO', 'ADANIPORTS',
+            'M&M', 'TECHM', 'WIPRO', 'NESTLEIND', 'HCLTECH'
+        ]
         
-        # Set dynamic targets based on actual movement
-        if stock['range'] > 3.0:
-            target = min(stock['range'] * 0.4, 2.0)
-            stop = target * 0.5
-        elif stock['range'] > 2.0:
-            target = min(stock['range'] * 0.5, 1.5)
-            stop = target * 0.5
-        else:
-            target = min(stock['range'] * 0.6, 1.0)
-            stop = target * 0.5
+        for symbol in nse_top_stocks:
+            try:
+                # Get today's data
+                stock = yf.Ticker(f"{symbol}.NS")
+                today = stock.history(period="1d", interval="5m")
+                
+                if len(today) < 10:  # Need sufficient data
+                    continue
+                    
+                current_price = today['Close'].iloc[-1]
+                open_price = today['Open'].iloc[0]
+                high_price = today['High'].max()
+                low_price = today['Low'].min()
+                
+                # Calculate key metrics
+                price_change_pct = ((current_price - open_price) / open_price) * 100
+                range_pct = ((high_price - low_price) / open_price) * 100
+                
+                # Only consider stocks with meaningful movement
+                if abs(price_change_pct) > 1.0 and range_pct > 1.5:
+                    stock_data = {
+                        'symbol': symbol,
+                        'price_change': price_change_pct,
+                        'range': range_pct,
+                        'current_price': current_price
+                    }
+                    
+                    if price_change_pct > 1.0:
+                        market_movers['top_gainers'].append(stock_data)
+                    elif price_change_pct < -1.0:
+                        market_movers['top_losers'].append(stock_data)
+                        
+            except:
+                continue
         
-        final_selection.append({
-            'symbol': symbol,
-            'score': composite_score,
-            'target_profit': round(target, 2),
-            'stop_loss': round(stop, 2),
-            'movement_today': stock['price_change'],
-            'range_today': stock['range'],
-            'selection_reason': 'market_leader' if stock in market_leaders['top_gainers'][:5] + market_leaders['top_losers'][:5] else 'sector_strength'
-        })
-    
-    # Sort by composite score and return top 8-10
-    final_selection.sort(key=lambda x: x['score'], reverse=True)
-    
-    selected_stocks = final_selection[:8]
-    
-    print(f"✅ Selected {len(selected_stocks)} stocks for trading:")
-    for stock in selected_stocks:
-        print(f"   {stock['symbol']}: Target {stock['target_profit']}%, Stop {stock['stop_loss']}% | Reason: {stock['selection_reason']}")
-    
-    return selected_stocks
+        # Sort by movement strength
+        market_movers['top_gainers'].sort(key=lambda x: x['range'], reverse=True)
+        market_movers['top_losers'].sort(key=lambda x: x['range'], reverse=True)
+        
+        return market_movers
+
+    def identify_strong_sectors_today(self):
+        """Identify which sectors are showing strength today"""
+        
+        sector_stocks = {
+            'banking': ['HDFCBANK', 'ICICIBANK', 'SBIN', 'KOTAKBANK', 'AXISBANK'],
+            'metals': ['TATASTEEL', 'JSWSTEEL', 'HINDALCO', 'VEDL', 'SAIL'],
+            'energy': ['RELIANCE', 'ONGC', 'BPCL', 'IOC'],
+            'auto': ['MARUTI', 'M_M', 'BAJAJ_AUTO', 'EICHERMOT'],
+            'it': ['TCS', 'INFY', 'WIPRO', 'HCLTECH', 'TECHM']
+        }
+        
+        sector_performance = {}
+        
+        for sector, stocks in sector_stocks.items():
+            sector_change = 0
+            valid_stocks = 0
+            strong_stocks = []
+            
+            for stock in stocks:
+                try:
+                    # Quick price check
+                    ticker = yf.Ticker(f"{stock}.NS")
+                    data = ticker.history(period="1d")
+                    
+                    if not data.empty:
+                        change_pct = ((data['Close'].iloc[-1] - data['Open'].iloc[0]) / data['Open'].iloc[0]) * 100
+                        sector_change += change_pct
+                        valid_stocks += 1
+                        
+                        if abs(change_pct) > 1.0:  # Stock showing movement
+                            strong_stocks.append({
+                                'symbol': stock,
+                                'change': change_pct
+                            })
+                except:
+                    continue
+            
+            if valid_stocks > 0:
+                sector_performance[sector] = {
+                    'avg_performance': sector_change / valid_stocks,
+                    'strong_stocks': strong_stocks,
+                    'momentum': 'strong' if abs(sector_change / valid_stocks) > 0.5 else 'weak'
+                }
+        
+        # Return sectors sorted by performance
+        strong_sectors = {k: v for k, v in sector_performance.items() 
+                         if v['momentum'] == 'strong'}
+        
+        return dict(sorted(strong_sectors.items(), 
+                          key=lambda x: abs(x[1]['avg_performance']), 
+                          reverse=True))
+
+    def filter_by_liquidity_and_volume(self, stock_list):
+        """Filter stocks by liquidity and volume criteria"""
+        
+        filtered_stocks = []
+        
+        for stock_data in stock_list:
+            symbol = stock_data['symbol']
+            
+            try:
+                # Get volume data
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="5d")  # 5 days for average
+                
+                if len(hist) < 3:
+                    continue
+                    
+                # Volume analysis
+                avg_volume = hist['Volume'].mean()
+                today_volume = hist['Volume'].iloc[-1]
+                volume_ratio = today_volume / avg_volume if avg_volume > 0 else 0
+                
+                # Price criteria
+                current_price = hist['Close'].iloc[-1]
+                
+                # Liquidity filters
+                if (50 <= current_price <= 5000 and  # Price range
+                    avg_volume >= 100000 and         # Minimum volume
+                    volume_ratio >= 0.5):            # Volume ratio
+                    
+                    stock_data.update({
+                        'avg_volume': avg_volume,
+                        'volume_ratio': volume_ratio,
+                        'liquidity_score': volume_ratio * (current_price / 1000)
+                    })
+                    filtered_stocks.append(stock_data)
+                    
+            except:
+                continue
+        
+        return sorted(filtered_stocks, key=lambda x: x['liquidity_score'], reverse=True)
 
 
     def authenticate_with_token(self, request_token):
@@ -302,16 +382,23 @@ class FreeAutoTradingBot:
         try:
             with self._cache_lock:
                 self.logger.info(
-                    "⏳ Updating daily stock list based on volatility and volume metrics..."
+                    "⏳ Updating daily stock list using precise stock selection..."
                 )
-                self.daily_stock_list = self.pick_top_stocks_by_volatility(
-                    volume_threshold=300000, top_n=15)
+                selected_stocks = self.select_precise_stocks_for_trading()
+                if selected_stocks:
+                    self.daily_stock_list = [stock['symbol'] for stock in selected_stocks]
+                else:
+                    # Fallback list
+                    self.daily_stock_list = ['RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'TATASTEEL', 'JSWSTEEL']
+            
                 self._last_cache_update = self.get_ist_time()
                 self.logger.info(
-                    f"✅ Daily stock list updated at {self._last_cache_update.strftime('%H:%M:%S IST')}"
+                    f"✅ Daily stock list updated with {len(self.daily_stock_list)} stocks at {self._last_cache_update.strftime('%H:%M:%S IST')}"
                 )
         except Exception as e:
             self.logger.error(f"🔴 Failed to update daily stock list: {e}")
+            # Emergency fallback
+            self.daily_stock_list = ['RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'SBIN']
 
     def maybe_refresh_daily_stock_list(self):
         """
@@ -794,79 +881,115 @@ class FreeAutoTradingBot:
         try:
             ist_now = self.get_ist_time()
 
-            # Avoid late entries (>14:45 IST)
-            if ist_now.time() >= datetime_time(14, 45):
-                self.logger.info(
-                    f"⏰ Skipping {symbol}: Too late for MIS entry (after 2:45 PM)"
-                )
-                return False
-
-            balance = self.get_account_balance()
-            if balance < 3000:
-                self.logger.warning("⚠️ Insufficient balance for trading")
-                return False
-
-            # Risk management - 2% capital per trade
-            risk_amount = balance * self.RISK_PER_TRADE
-            stop_loss_per_share = signal_price * (self.stop_loss / 100)
-            if stop_loss_per_share == 0:
-                self.logger.warning(
-                    "⚠️ Stop loss per share is zero, skipping trade")
-                return False
-
-            quantity = max(1, int(risk_amount / stop_loss_per_share))
-
-            # Limit max investment to 10% of balance
-            max_investment = balance * 0.10
-            required_amount = signal_price * quantity
-
-            if required_amount > max_investment:
-                quantity = int(max_investment / signal_price)
-
-            if quantity < 1:
-                self.logger.warning(f"⚠️ Position size too small for {symbol}")
-                return False
-
-            # Place order
-            is_buy = (direction == "BUY")
-            order_id = self.place_order(symbol, quantity, is_buy)
-            if not order_id:
-                return False
-
-            # Target and Stop Loss
-            if direction == "BUY":
-                target_price = signal_price * (1 + self.target_profit / 100)
-                stop_loss_price = signal_price * (1 - self.stop_loss / 100)
-            else:  # SHORT
-                target_price = signal_price * (1 - self.target_profit / 100)
-                stop_loss_price = signal_price * (1 + self.stop_loss / 100)
-
-            position_key = f"{symbol}_{order_id}"
-            self.positions[position_key] = {
-                'symbol': symbol,
-                'side': direction,
-                'entry_price': signal_price,
-                'quantity': quantity,
-                'target_price': target_price,
-                'stop_loss_price': stop_loss_price,
-                'entry_time': ist_now,
-                'order_id': order_id,
-                'transaction_type': direction
-            }
-
+        # Avoid late entries (>14:45 IST)
+        if ist_now.time() >= datetime_time(14, 45):
             self.logger.info(
-                f"🎯 NEW {direction} POSITION: {symbol} | Entry: ₹{signal_price} | Qty: {quantity}"
+                f"⏰ Skipping {symbol}: Too late for MIS entry (after 2:45 PM)"
             )
-            self.logger.info(
-                f"   🎯 Target: ₹{target_price:.2f} ({self.target_profit}%)")
-            self.logger.info(
-                f"   🛑 Stop Loss: ₹{stop_loss_price:.2f} ({self.stop_loss}%)")
-
-            self.save_positions()
-            return True
-        except Exception as e:
-            self.logger.error(f"Error executing strategy for {symbol}: {e}")
             return False
+
+        balance = self.get_account_balance()
+        if balance < 3000:
+            self.logger.warning("⚠️ Insufficient balance for trading")
+            return False
+
+        # ✅ NEW: Check if we have dynamic targets from stock selection
+        selected_stocks = getattr(self, '_current_selection', [])
+        dynamic_targets = None
+        
+        for stock in selected_stocks:
+            if stock['symbol'] == symbol:
+                dynamic_targets = {
+                    'target': stock['target_profit'],
+                    'stop': stock['stop_loss']
+                }
+                self.logger.info(f"📊 Using dynamic targets for {symbol}: Target {dynamic_targets['target']}%, Stop {dynamic_targets['stop']}%")
+                break
+
+        # ✅ NEW: Use dynamic targets if available, otherwise use default
+        if dynamic_targets:
+            # Use dynamic targets from stock selection
+            target_profit_pct = dynamic_targets['target']
+            stop_loss_pct = dynamic_targets['stop']
+        else:
+            # Use default targets
+            target_profit_pct = self.target_profit
+            stop_loss_pct = self.stop_loss
+            self.logger.info(f"📊 Using default targets for {symbol}: Target {target_profit_pct}%, Stop {stop_loss_pct}%")
+
+        # Risk management - calculate position size based on stop loss
+        risk_amount = balance * self.RISK_PER_TRADE
+        stop_loss_per_share = signal_price * (stop_loss_pct / 100)
+        if stop_loss_per_share == 0:
+            self.logger.warning(
+                "⚠️ Stop loss per share is zero, skipping trade")
+            return False
+
+        quantity = max(1, int(risk_amount / stop_loss_per_share))
+
+        # Limit max investment to 10% of balance
+        max_investment = balance * 0.10
+        required_amount = signal_price * quantity
+
+        if required_amount > max_investment:
+            quantity = int(max_investment / signal_price)
+
+        if quantity < 1:
+            self.logger.warning(f"⚠️ Position size too small for {symbol}")
+            return False
+
+        # Place order
+        is_buy = (direction == "BUY")
+        order_id = self.place_order(symbol, quantity, is_buy)
+        if not order_id:
+            return False
+
+        # ✅ UPDATED: Calculate Target and Stop Loss using dynamic or default targets
+        if direction == "BUY":
+            target_price = signal_price * (1 + target_profit_pct / 100)
+            stop_loss_price = signal_price * (1 - stop_loss_pct / 100)
+        else:  # SHORT
+            target_price = signal_price * (1 - target_profit_pct / 100)
+            stop_loss_price = signal_price * (1 + stop_loss_pct / 100)
+
+        # Store position with dynamic targets used
+        position_key = f"{symbol}_{order_id}"
+        self.positions[position_key] = {
+            'symbol': symbol,
+            'side': direction,
+            'entry_price': signal_price,
+            'quantity': quantity,
+            'target_price': target_price,
+            'stop_loss_price': stop_loss_price,
+            'entry_time': ist_now,
+            'order_id': order_id,
+            'transaction_type': direction,
+            # ✅ NEW: Store which targets were used
+            'target_profit_pct': target_profit_pct,
+            'stop_loss_pct': stop_loss_pct,
+            'using_dynamic_targets': dynamic_targets is not None
+        }
+
+        self.logger.info(
+            f"🎯 NEW {direction} POSITION: {symbol} | Entry: ₹{signal_price} | Qty: {quantity}"
+        )
+        self.logger.info(
+            f"   🎯 Target: ₹{target_price:.2f} ({target_profit_pct}%)")
+        self.logger.info(
+            f"   🛑 Stop Loss: ₹{stop_loss_price:.2f} ({stop_loss_pct}%)")
+        
+        # ✅ NEW: Log if using dynamic targets
+        if dynamic_targets:
+            self.logger.info(f"   📊 Using DYNAMIC targets based on volatility analysis")
+        else:
+            self.logger.info(f"   📊 Using DEFAULT targets")
+
+        self.save_positions()
+        return True
+    except Exception as e:
+        self.logger.error(f"Error executing strategy for {symbol}: {e}")
+        return False
+
 
     # === Update Trailing Stops ===
     def update_trailing_stops(self):
@@ -999,7 +1122,12 @@ class FreeAutoTradingBot:
             return
 
         # Refresh the daily stock list cache if needed
-        self.maybe_refresh_daily_stock_list()
+        selected_stocks = self.select_precise_stocks_for_trading()
+        if selected_stocks:
+            self.daily_stock_list = [stock['symbol'] for stock in selected_stocks]
+        else:
+            self.logger.warning("No stocks selected, using fallback list")
+            self.daily_stock_list = ['RELIANCE', 'TCS', 'HDFCBANK', 'ICICIBANK', 'SBIN']
 
         with self._cache_lock:
             watchlist = self.daily_stock_list.copy(
