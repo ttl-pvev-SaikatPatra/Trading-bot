@@ -174,76 +174,87 @@ class FreeAutoTradingBot:
         # return top_stocks
     
     def select_precise_stocks_for_trading(self):
-    """Final precise stock selection combining all factors"""
+        """Final precise stock selection combining all factors"""
     
-    print("🎯 Starting precise stock selection...")
+        print("🎯 Starting precise stock selection...")
     
-    # Step 1: Get today's market leaders
-    market_leaders = self.get_todays_market_leaders()
-    all_candidates = (market_leaders['top_gainers'][:8] + 
-                     market_leaders['top_losers'][:8])
+        # Step 1: Get today's market leaders
+        market_leaders = self.get_todays_market_leaders()
+        all_candidates = (
+            market_leaders["top_gainers"][:8] + market_leaders["top_losers"][:8]
+        )
     
-    # Step 2: Identify strong sectors
-    strong_sectors = self.identify_strong_sectors_today()
+        # Step 2: Identify strong sectors
+        strong_sectors = self.identify_strong_sectors_today()
     
-    # Step 3: Add sector leaders to candidates
-    for sector, data in list(strong_sectors.items())[:3]:  # Top 3 sectors
-        for stock in data['strong_stocks'][:2]:  # Top 2 stocks per sector
-            if stock['symbol'] not in [s['symbol'] for s in all_candidates]:
-                all_candidates.append({
-                    'symbol': stock['symbol'],
-                    'price_change': stock['change'],
-                    'range': abs(stock['change']) * 1.2,  # Estimate
-                    'sector': sector
-                })
+        # Step 3: Add sector leaders to candidates
+        for sector, data in list(strong_sectors.items())[:3]:  # Top 3 sectors
+            for stock in data["strong_stocks"][:2]:  # Top 2 stocks per sector
+                if stock["symbol"] not in [s["symbol"] for s in all_candidates]:
+                    all_candidates.append(
+                        {
+                            "symbol": stock["symbol"],
+                            "price_change": stock["change"],
+                            "range": abs(stock["change"]) * 1.2,  # Estimate
+                            "sector": sector,
+                        }
+                    )
     
-    # Step 4: Apply liquidity filter
-    liquid_stocks = self.filter_by_liquidity_and_volume(all_candidates)
+        # Step 4: Apply liquidity filter
+        liquid_stocks = self.filter_by_liquidity_and_volume(all_candidates)
     
-    # Step 5: Final scoring and selection
-    final_selection = []
+        # Step 5: Final scoring and selection
+        final_selection = []
     
-    for stock in liquid_stocks[:15]:  # Top 15 after filtering
-        symbol = stock['symbol']
-        
-        # Calculate composite score
-        movement_score = abs(stock['price_change']) * 0.3
-        range_score = stock['range'] * 0.4
-        volume_score = min(stock.get('volume_ratio', 1), 3) * 0.3
-        
-        composite_score = movement_score + range_score + volume_score
-        
-        # Set dynamic targets based on actual movement
-        if stock['range'] > 3.0:
-            target = min(stock['range'] * 0.4, 2.0)
-            stop = target * 0.5
-        elif stock['range'] > 2.0:
-            target = min(stock['range'] * 0.5, 1.5)
-            stop = target * 0.5
-        else:
-            target = min(stock['range'] * 0.6, 1.0)
-            stop = target * 0.5
-        
-        final_selection.append({
-            'symbol': symbol,
-            'score': composite_score,
-            'target_profit': round(target, 2),
-            'stop_loss': round(stop, 2),
-            'movement_today': stock['price_change'],
-            'range_today': stock['range'],
-            'selection_reason': 'market_leader' if stock in market_leaders['top_gainers'][:5] + market_leaders['top_losers'][:5] else 'sector_strength'
-        })
+        for stock in liquid_stocks[:15]:  # Top 15 after filtering
+            symbol = stock["symbol"]
     
-    # Sort by composite score and return top 8-10
-    final_selection.sort(key=lambda x: x['score'], reverse=True)
+            # Calculate composite score
+            movement_score = abs(stock["price_change"]) * 0.3
+            range_score = stock["range"] * 0.4
+            volume_score = min(stock.get("volume_ratio", 1), 3) * 0.3
     
-    selected_stocks = final_selection[:8]
+            composite_score = movement_score + range_score + volume_score
     
-    print(f"✅ Selected {len(selected_stocks)} stocks for trading:")
-    for stock in selected_stocks:
-        print(f"   {stock['symbol']}: Target {stock['target_profit']}%, Stop {stock['stop_loss']}% | Reason: {stock['selection_reason']}")
+            # Set dynamic targets based on actual movement
+            if stock["range"] > 3.0:
+                target = min(stock["range"] * 0.4, 2.0)
+                stop = target * 0.5
+            elif stock["range"] > 2.0:
+                target = min(stock["range"] * 0.5, 1.5)
+                stop = target * 0.5
+            else:
+                target = min(stock["range"] * 0.6, 1.0)
+                stop = target * 0.5
     
-    return selected_stocks
+            final_selection.append(
+                {
+                    "symbol": symbol,
+                    "score": composite_score,
+                    "target_profit": round(target, 2),
+                    "stop_loss": round(stop, 2),
+                    "movement_today": stock["price_change"],
+                    "range_today": stock["range"],
+                    "selection_reason": "market_leader"
+                    if stock
+                    in market_leaders["top_gainers"][:5] + market_leaders["top_losers"][:5]
+                    else "sector_strength",
+                }
+            )
+    
+        # Sort by composite score and return top 8-10
+        final_selection.sort(key=lambda x: x["score"], reverse=True)
+    
+        selected_stocks = final_selection[:8]
+    
+        print(f"✅ Selected {len(selected_stocks)} stocks for trading:")
+        for stock in selected_stocks:
+            print(
+                f"   {stock['symbol']}: Target {stock['target_profit']}%, Stop {stock['stop_loss']}% | Reason: {stock['selection_reason']}"
+            )
+    
+        return selected_stocks
+
 
 
     def authenticate_with_token(self, request_token):
