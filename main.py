@@ -36,76 +36,6 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all domains
 bot_instance = None  # Will be set when bot is created
 
-
-def verify_token_file():
-    try:
-        # Try to read the existing token file
-        with open('access_token.txt', 'r') as f:
-            lines = f.read().strip().split('\n')
-        
-        # Check if we have both token and timestamp
-        if len(lines) < 2 or not lines[0] or not lines[1]:
-            print("❌ Token file incomplete, regenerating...")
-            return generate_new_token()
-        
-        token = lines[0]
-        
-        try:
-            saved_time = datetime.fromisoformat(lines[1])
-            print("Naive saved_time:", saved_time)
-            saved_time = IST.localize(saved_time)
-            print("Localized saved_time:", saved_time)
-        except ValueError as e:
-            print(f"❌ Invalid timestamp format: {e}")
-            return generate_new_token()
-
-        now = datetime.now(IST)
-        print("Current IST time:", now)
-
-        expiry_time = saved_time.replace(hour=6, minute=0, second=0, microsecond=0)
-        if saved_time.hour >= 6:
-            expiry_time += timedelta(days=1)
-        print("Expiry time:", expiry_time)
-
-        is_valid = now < expiry_time
-        print("Is token valid?", is_valid)
-        
-        if is_valid:
-            print("✅ Using existing valid token")
-            return token
-        else:
-            print("⏰ Token expired, regenerating...")
-            return generate_new_token()
-            
-    except FileNotFoundError:
-        print("📁 Token file not found, creating new token...")
-        return generate_new_token()
-    except Exception as e:
-        print(f"❌ Unexpected error reading token file: {e}")
-        return generate_new_token()
-
-def generate_new_token():
-    """Generate a new access token and save it to file"""
-    try:
-        # Your token generation logic here
-        # This is just a placeholder - replace with your actual Kite Connect token generation
-        new_token = "new_generated_token_placeholder"
-        current_time = datetime.now(IST).replace(microsecond=0)
-        
-        # Save to file
-        with open('access_token.txt', 'w') as f:
-            f.write(f"{new_token}\n{current_time.isoformat()}")
-        
-        print(f"✅ New token saved: {new_token[:10]}...")
-        return new_token
-        
-    except Exception as e:
-        print(f"❌ Error generating new token: {e}")
-        return None
-
-# Call the function
-verify_token_file()
-
 class FreeAutoTradingBot:
 
     def __init__(self):
@@ -120,7 +50,7 @@ class FreeAutoTradingBot:
         self.total_trades_today = 0
         self.win_rate = 0
         self.target_profit = 1.2  # 1.2% target profit (realistic for intraday)
-        self.stop_loss = 0.6  # 0.6% stop loss (R:R = 2:1)
+        self.stop_loss = 0.6   0.6% stop loss (R:R = 2:1)
         self.daily_stock_list = []
         self._cache_lock = threading.Lock()
         self._last_cache_update = None
@@ -1144,7 +1074,50 @@ def set_token_api():
     except Exception as e:
         return {"success": False, "error": str(e)}, 500
 
+# ADD THIS ROUTE to your main.py
+@app.route('/api/close-position', methods=['POST'])
+def close_position():
+    global bot_instance
+    if not bot_instance:
+        return jsonify({'success': False, 'message': 'Bot not initialized'})
+    
+    try:
+        data = request.get_json()
+        symbol = data.get('symbol')
+        
+        if not symbol:
+            return jsonify({'success': False, 'message': 'Symbol required'})
+        
+        # Find and close the position
+        position_to_close = None
+        for key, pos in bot_instance.positions.items():
+            if pos['symbol'] == symbol:
+                position_to_close = (key, pos)
+                break
+        
+        if not position_to_close:
+            return jsonify({'success': False, 'message': 'Position not found'})
+        
+        key, pos = position_to_close
+        
+        # Place exit order
+        is_buy_to_close = pos['side'] == 'SHORT'  # If SHORT, buy to close
+        order_id = bot_instance.place_order(symbol, pos['quantity'], is_buy_to_close)
+        
+        if order_id:
+            # Remove from positions
+            del bot_instance.positions[key]
+            bot_instance.save_positions()
+            return jsonify({'success': True, 'message': f'Position {symbol} closed successfully'})
+        else:
+            return jsonify({'success': False, 'message': 'Failed to place exit order'})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
 
+
+
+# REPLACE the home() route with:
 @app.route('/')
 def home():
     global bot_instance
@@ -1156,8 +1129,7 @@ def home():
         market_status = 'Open' if bot_instance.is_market_open() else 'Closed'
         target_profit = bot_instance.target_profit
         stop_loss = bot_instance.stop_loss
-        current_time = bot_instance.get_ist_time().strftime(
-            '%Y-%m-%d %H:%M:%S IST')
+        current_time = bot_instance.get_ist_time().strftime('%Y-%m-%d %H:%M:%S IST')
         return f'''
         <html><head><title>Trading Bot Dashboard</title></head><body>
         <h1>🤖 Enhanced Trading Bot Dashboard</h1>
@@ -1291,12 +1263,8 @@ def control_bot(action):
         return jsonify({'status': 'Bot not running'})
 
     if action == 'scan':
-        threading.Thread(target=bot_instance.scan_for_opportunities,
-                         daemon=True).start()
-        return jsonify({
-            'status':
-            'Manual scan triggered (BUY+SHORT opportunities with trailing stops)'
-        })
+        threading.Thread(target=bot_instance.scan_for_opportunities, daemon=True).start()
+        return jsonify({'status': 'Manual scan triggered (BUY+SHORT opportunities with trailing stops)'})
     elif action == 'pause':
         bot_instance.bot_status = 'Paused'
         return jsonify({'status': 'Bot paused'})
@@ -1349,6 +1317,19 @@ def api_refresh_watchlist():
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/token-status')
+def token_status():
+    """Check if a valid token exists"""
+    global bot_instance
+    try:
+        has_valid_token = bot_instance and bot_instance.access_token is not None
+        return jsonify({
+            "has_token": has_valid_token,
+            "status": "Valid token found" if has_valid_token else "No valid token"
+        })
+    except Exception as e:
+        return jsonify({"has_token": False, "status": f"Error: {e}"})
 
 @app.route('/initialize')
 def initialize_bot():
