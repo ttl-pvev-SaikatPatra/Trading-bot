@@ -5,3 +5,4 @@ requests
 schedule
 flask
 gunicorn
+flask-cors
