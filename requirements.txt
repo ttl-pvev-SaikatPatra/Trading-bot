@@ -1,0 +1,6 @@
+kiteconnect
+pandas
+yfinance
+requests
+schedule
+flask
