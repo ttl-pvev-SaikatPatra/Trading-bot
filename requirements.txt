@@ -4,3 +4,4 @@ yfinance
 requests
 schedule
 flask
+gunicorn
