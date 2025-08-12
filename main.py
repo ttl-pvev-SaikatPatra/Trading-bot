@@ -33,7 +33,7 @@ MARKET_END = datetime_time(15, 30)
 
 # Create Flask app instance at module level
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all domains
+CORS(app, origins=['https://trading-app-phi-liart.vercel.app'])  # Enable CORS for all domains
 bot_instance = None  # Will be set when bot is created
 
 class FreeAutoTradingBot:
