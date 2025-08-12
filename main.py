@@ -50,7 +50,7 @@ class FreeAutoTradingBot:
         self.total_trades_today = 0
         self.win_rate = 0
         self.target_profit = 1.2  # 1.2% target profit (realistic for intraday)
-        self.stop_loss = 0.6   0.6% stop loss (R:R = 2:1)
+        self.stop_loss = 0.6   # 0.6% stop loss (R:R = 2:1)
         self.daily_stock_list = []
         self._cache_lock = threading.Lock()
         self._last_cache_update = None
