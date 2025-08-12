@@ -1109,6 +1109,15 @@ def home():
     except Exception as e:
         return f"<h1>Error: {e}</h1>"
 
+@app.route('/set-token', methods=['POST'])
+def set_token_api():
+    try:
+        data = request.get_json()
+        request_token = data.get('request_token')
+        
+        if not request_token or len(request_token) != 32:
+            return {"success": False, "error": "Invalid token format"}, 400
+
 
 @app.route('/api/status')
 def api_status():
@@ -1319,6 +1328,31 @@ def initialize_bot():
         
         # Create bot instance
         bot = FreeAutoTradingBot()
+        success = bot.authenticate_with_token(request_token)
+        if success:
+            return {
+                "success": True, 
+                "message": "Authentication successful! Token saved.",
+                "redirect_url": "https://trading-bot-ynt2.onrender.com/initialize"
+            }
+        else:
+            return {"success": False, "error": "Authentication failed"}, 400
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}, 500
+
+@app.route('/token-status')
+def token_status():
+    """Check if a valid token exists"""
+    try:
+        bot = FreeAutoTradingBot()
+        has_valid_token = bot.load_saved_token()
+        return {
+            "has_token": has_valid_token,
+            "status": "Valid token found" if has_valid_token else "No valid token"
+        }
+    except:
+        return {"has_token": False, "status": "No token file found"}
 
         # Authentication
         if not bot.load_saved_token():
