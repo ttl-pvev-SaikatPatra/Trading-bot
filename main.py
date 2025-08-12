@@ -49,7 +49,7 @@ class FreeAutoTradingBot:
         self.bot_status = 'Initializing'
         self.total_trades_today = 0
         self.win_rate = 0
-        self.target_profit = 1.2  # 1.2% target profit (realistic for intraday)
+        self.target_profit = 1.8  # 1.8% target profit change (realistic for intraday)
         self.stop_loss = 0.6   # 0.6% stop loss (R:R = 2:1)
         self.daily_stock_list = []
         self._cache_lock = threading.Lock()
@@ -60,8 +60,8 @@ class FreeAutoTradingBot:
         self.trailing_start_pct = 0.5  # start trailing once profit >= 0.5%
 
         # Risk management
-        self.RISK_PER_TRADE = 0.02  # 2% of capital per trade
-        self.MAX_POSITIONS = 3  # Maximum 3 simultaneous positions
+        self.RISK_PER_TRADE = 0.04  # 4% of capital per trade
+        self.MAX_POSITIONS = 5  # Maximum 5 simultaneous positions
 
         # Set up logging
         logging.basicConfig(level=logging.INFO,
@@ -102,76 +102,149 @@ class FreeAutoTradingBot:
     # 'TATACOMM': 'TATACOMM.NS'
     # }
 
-    def pick_top_stocks_by_volatility(self, volume_threshold=300000, top_n=15):
-        stock_list = [
-            'RELIANCE.NS', 'TCS.NS', 'ICICIBANK.NS', 'LT.NS', 'POLYCAB.NS',
-            'HDFCBANK.NS', 'ASIANPAINT.NS', 'BHARTIARTL.NS', 'TATAMOTORS.NS',
-            'ITC.NS', 'BAJFINANCE.NS', 'INFY.NS', 'AXISBANK.NS', 'MARUTI.NS',
-            'ADANIGREEN.NS', 'BHEL.NS', 'ADANIPORTS.NS', 'CANBK.NS',
-            'HAVELLS.NS', 'COALINDIA.NS', 'TATAELXSI.NS', 'RBLBANK.NS',
-            'BANKBARODA.NS', 'POLYCAB.NS', 'DEEPAKNTR.NS', 'PIDILITIND.NS',
-            'CUMMINSIND.NS', 'COFORGE.NS', 'NAUKRI.NS'
-        ]
-        ranking = []
-        for symbol in stock_list:
-            try:
-                df = yf.download(symbol,
-                                 period='10d',
-                                 interval='1d',
-                                 progress=False,
-                                 auto_adjust=False,
-                                 threads=False)
+    #def pick_top_stocks_by_volatility(self, volume_threshold=300000, top_n=15):
+     #   stock_list = [
+      #      'RELIANCE.NS', 'TCS.NS', 'ICICIBANK.NS', 'LT.NS', 'POLYCAB.NS',
+       #     'HDFCBANK.NS', 'ASIANPAINT.NS', 'BHARTIARTL.NS', 'TATAMOTORS.NS',
+        #    'ITC.NS', 'BAJFINANCE.NS', 'INFY.NS', 'AXISBANK.NS', 'MARUTI.NS',
+         #   'ADANIGREEN.NS', 'BHEL.NS', 'ADANIPORTS.NS', 'CANBK.NS',
+          #  'HAVELLS.NS', 'COALINDIA.NS', 'TATAELXSI.NS', 'RBLBANK.NS',
+           # 'BANKBARODA.NS', 'POLYCAB.NS', 'DEEPAKNTR.NS', 'PIDILITIND.NS',
+            #'CUMMINSIND.NS', 'COFORGE.NS', 'NAUKRI.NS'
+       # ]
+        #ranking = []
+       # for symbol in stock_list:
+        #    try:
+         #       df = yf.download(symbol,
+          #                       period='10d',
+           #                      interval='1d',
+            #                     progress=False,
+             #                    auto_adjust=False,
+              #                   threads=False)
 
-                # Flatten MultiIndex columns to single level if needed
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = [col[0] for col in df.columns]
+                # # Flatten MultiIndex columns to single level if needed
+                # if isinstance(df.columns, pd.MultiIndex):
+                #     df.columns = [col[0] for col in df.columns]
 
-                if df.empty:
-                    continue
+                # if df.empty:
+                #     continue
 
-                required_cols = ['Volume', 'High', 'Low', 'Close']
-                if not all(col in df.columns for col in required_cols):
-                    missing_cols = list(set(required_cols) - set(df.columns))
-                    self.logger.warning(
-                        f"Data error for {symbol}: missing columns - {missing_cols}"
-                    )
-                    continue
+                # required_cols = ['Volume', 'High', 'Low', 'Close']
+                # if not all(col in df.columns for col in required_cols):
+                #     missing_cols = list(set(required_cols) - set(df.columns))
+                #     self.logger.warning(
+                #         f"Data error for {symbol}: missing columns - {missing_cols}"
+                #     )
+                #     continue
 
-                df = df.dropna(subset=required_cols)
-                if df.empty:
-                    continue
+                # df = df.dropna(subset=required_cols)
+                # if df.empty:
+                #     continue
 
-                avg_volume = df['Volume'].tail(5).mean()
-                self.logger.info(f"{symbol}: Recent avg volume = {avg_volume}")
-                if pd.isna(avg_volume) or avg_volume < volume_threshold:
-                    continue
+                # avg_volume = df['Volume'].tail(5).mean()
+                # self.logger.info(f"{symbol}: Recent avg volume = {avg_volume}")
+                # if pd.isna(avg_volume) or avg_volume < volume_threshold:
+                #     continue
 
-                high = df['High']
-                low = df['Low']
-                close = df['Close']
+        #         high = df['High']
+        #         low = df['Low']
+        #         close = df['Close']
 
-                tr = pd.concat([
-                    high - low, (high - close.shift()).abs(),
-                    (low - close.shift()).abs()
-                ],
-                               axis=1).max(axis=1)
+        #         tr = pd.concat([
+        #             high - low, (high - close.shift()).abs(),
+        #             (low - close.shift()).abs()
+        #         ],
+        #                        axis=1).max(axis=1)
 
-                atr = tr.rolling(window=5).mean().iloc[-1]
-                if pd.isna(atr):
-                    continue
+        #         atr = tr.rolling(window=5).mean().iloc[-1]
+        #         if pd.isna(atr):
+        #             continue
 
-                ranking.append((symbol, atr, avg_volume))
-                import time
-                time.sleep(0.5)  # respect remote API
+        #         ranking.append((symbol, atr, avg_volume))
+        #         import time
+        #         time.sleep(0.5)  # respect remote API
 
-            except Exception as e:
-                self.logger.warning(f"Data error for {symbol}: {e}")
-                continue
+        #     except Exception as e:
+        #         self.logger.warning(f"Data error for {symbol}: {e}")
+        #         continue
 
-        ranking.sort(key=lambda x: x[1], reverse=True)
-        top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
-        self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
-        return top_stocks
+        # ranking.sort(key=lambda x: x[1], reverse=True)
+        # top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
+        # self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
+        # return top_stocks
+    
+    def select_precise_stocks_for_trading(self):
+    """Final precise stock selection combining all factors"""
+    
+    print("🎯 Starting precise stock selection...")
+    
+    # Step 1: Get today's market leaders
+    market_leaders = self.get_todays_market_leaders()
+    all_candidates = (market_leaders['top_gainers'][:8] + 
+                     market_leaders['top_losers'][:8])
+    
+    # Step 2: Identify strong sectors
+    strong_sectors = self.identify_strong_sectors_today()
+    
+    # Step 3: Add sector leaders to candidates
+    for sector, data in list(strong_sectors.items())[:3]:  # Top 3 sectors
+        for stock in data['strong_stocks'][:2]:  # Top 2 stocks per sector
+            if stock['symbol'] not in [s['symbol'] for s in all_candidates]:
+                all_candidates.append({
+                    'symbol': stock['symbol'],
+                    'price_change': stock['change'],
+                    'range': abs(stock['change']) * 1.2,  # Estimate
+                    'sector': sector
+                })
+    
+    # Step 4: Apply liquidity filter
+    liquid_stocks = self.filter_by_liquidity_and_volume(all_candidates)
+    
+    # Step 5: Final scoring and selection
+    final_selection = []
+    
+    for stock in liquid_stocks[:15]:  # Top 15 after filtering
+        symbol = stock['symbol']
+        
+        # Calculate composite score
+        movement_score = abs(stock['price_change']) * 0.3
+        range_score = stock['range'] * 0.4
+        volume_score = min(stock.get('volume_ratio', 1), 3) * 0.3
+        
+        composite_score = movement_score + range_score + volume_score
+        
+        # Set dynamic targets based on actual movement
+        if stock['range'] > 3.0:
+            target = min(stock['range'] * 0.4, 2.0)
+            stop = target * 0.5
+        elif stock['range'] > 2.0:
+            target = min(stock['range'] * 0.5, 1.5)
+            stop = target * 0.5
+        else:
+            target = min(stock['range'] * 0.6, 1.0)
+            stop = target * 0.5
+        
+        final_selection.append({
+            'symbol': symbol,
+            'score': composite_score,
+            'target_profit': round(target, 2),
+            'stop_loss': round(stop, 2),
+            'movement_today': stock['price_change'],
+            'range_today': stock['range'],
+            'selection_reason': 'market_leader' if stock in market_leaders['top_gainers'][:5] + market_leaders['top_losers'][:5] else 'sector_strength'
+        })
+    
+    # Sort by composite score and return top 8-10
+    final_selection.sort(key=lambda x: x['score'], reverse=True)
+    
+    selected_stocks = final_selection[:8]
+    
+    print(f"✅ Selected {len(selected_stocks)} stocks for trading:")
+    for stock in selected_stocks:
+        print(f"   {stock['symbol']}: Target {stock['target_profit']}%, Stop {stock['stop_loss']}% | Reason: {stock['selection_reason']}")
+    
+    return selected_stocks
+
 
     def authenticate_with_token(self, request_token):
         """Authenticate using request token from Vercel app"""
