@@ -243,6 +243,39 @@ class FreeAutoTradingBot:
         self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
         return top_stocks
 
+    def authenticate_with_token(self, request_token):
+    """Authenticate using request token from Vercel app"""
+    try:
+        print(f"🔄 Authenticating with request token: {request_token[:8]}...")
+        data = self.kite.generate_session(request_token, api_secret=API_SECRET)
+        self.access_token = data["access_token"]
+        self.kite.set_access_token(self.access_token)
+        
+        # Save token to file
+        current_time = datetime.now(IST).replace(microsecond=0)
+        with open('access_token.txt', 'w') as f:
+            f.write(f"{self.access_token}\n{current_time.isoformat()}")
+            
+        print(f"✅ Authentication successful! Token saved.")
+        self.bot_status = 'Active'
+        
+        # Test connection
+        try:
+            profile = self.kite.profile()
+            margins = self.kite.margins()
+            balance = margins['equity']['available']['live_balance']
+            print(f"👤 Welcome: {profile['user_name']}")
+            print(f"💰 Available Balance: ₹{balance:,.2f}")
+        except Exception as e:
+            print(f"⚠️ Authentication successful but error getting account info: {e}")
+            
+        return True
+        
+    except Exception as e:
+        print(f"❌ Authentication failed: {e}")
+        self.bot_status = 'Authentication Failed'
+        return False
+
     def _is_within_refresh_window(self,
                                   refresh_time: datetime.time,
                                   tolerance_minutes=5):
@@ -1082,6 +1115,36 @@ def keep_alive_ping():
 
 
 # === Flask Routes ===
+
+@app.route('/set-token', methods=['POST'])
+def set_token_api():
+    global bot_instance
+    try:
+        data = request.get_json()
+        request_token = data.get('request_token')
+        
+        if not request_token or len(request_token) != 32:
+            return {"success": False, "error": "Invalid token format"}, 400
+        
+        # Create bot if it doesn't exist
+        if not bot_instance:
+            bot_instance = FreeAutoTradingBot()
+        
+        success = bot_instance.authenticate_with_token(request_token)
+        
+        if success:
+            return {
+                "success": True, 
+                "message": "Authentication successful! Token saved.",
+                "redirect_url": "https://trading-bot-ynt2.onrender.com/initialize"
+            }
+        else:
+            return {"success": False, "error": "Authentication failed"}, 400
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}, 500
+
+
 @app.route('/')
 def home():
     global bot_instance
