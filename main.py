@@ -38,27 +38,73 @@ bot_instance = None  # Will be set when bot is created
 
 
 def verify_token_file():
-    with open('access_token.txt') as f:
-        lines = f.read().strip().split('\n')
-    token = lines[0]
-    saved_time = datetime.fromisoformat(lines[1])
-    print("Naive saved_time:", saved_time)
-    saved_time = IST.localize(saved_time)
-    print("Localized saved_time:", saved_time)
+    try:
+        # Try to read the existing token file
+        with open('access_token.txt', 'r') as f:
+            lines = f.read().strip().split('\n')
+        
+        # Check if we have both token and timestamp
+        if len(lines) < 2 or not lines[0] or not lines[1]:
+            print("❌ Token file incomplete, regenerating...")
+            return generate_new_token()
+        
+        token = lines[0]
+        
+        try:
+            saved_time = datetime.fromisoformat(lines[1])
+            print("Naive saved_time:", saved_time)
+            saved_time = IST.localize(saved_time)
+            print("Localized saved_time:", saved_time)
+        except ValueError as e:
+            print(f"❌ Invalid timestamp format: {e}")
+            return generate_new_token()
 
-    now = datetime.now(IST)
-    print("Current IST time:", now)
+        now = datetime.now(IST)
+        print("Current IST time:", now)
 
-    expiry_time = saved_time.replace(hour=6, minute=0, second=0, microsecond=0)
-    if saved_time.hour >= 6:
-        expiry_time += timedelta(days=1)
-    print("Expiry time:", expiry_time)
+        expiry_time = saved_time.replace(hour=6, minute=0, second=0, microsecond=0)
+        if saved_time.hour >= 6:
+            expiry_time += timedelta(days=1)
+        print("Expiry time:", expiry_time)
 
-    print("Is token valid?", now < expiry_time)
+        is_valid = now < expiry_time
+        print("Is token valid?", is_valid)
+        
+        if is_valid:
+            print("✅ Using existing valid token")
+            return token
+        else:
+            print("⏰ Token expired, regenerating...")
+            return generate_new_token()
+            
+    except FileNotFoundError:
+        print("📁 Token file not found, creating new token...")
+        return generate_new_token()
+    except Exception as e:
+        print(f"❌ Unexpected error reading token file: {e}")
+        return generate_new_token()
 
+def generate_new_token():
+    """Generate a new access token and save it to file"""
+    try:
+        # Your token generation logic here
+        # This is just a placeholder - replace with your actual Kite Connect token generation
+        new_token = "new_generated_token_placeholder"
+        current_time = datetime.now(IST).replace(microsecond=0)
+        
+        # Save to file
+        with open('access_token.txt', 'w') as f:
+            f.write(f"{new_token}\n{current_time.isoformat()}")
+        
+        print(f"✅ New token saved: {new_token[:10]}...")
+        return new_token
+        
+    except Exception as e:
+        print(f"❌ Error generating new token: {e}")
+        return None
 
+# Call the function
 verify_token_file()
-
 
 class FreeAutoTradingBot:
 
