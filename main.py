@@ -1295,6 +1295,8 @@ def start_scheduled_trading():
 
 
 # === Main execution ===
+
+# === Main execution ===
 if __name__ == "__main__":
     print("🚀 ENHANCED INTRADAY TRADING BOT WITH TRAILING STOPS")
     print("=" * 60)
@@ -1304,44 +1306,66 @@ if __name__ == "__main__":
     print("💰 Risk: 2% capital per trade | Max: 3 positions")
     print("🔄 Features: BUY+SHORT, Trailing Stops, Mid-caps, Rapid Monitor")
     print("=" * 60)
-
-    # Create bot instance
-    bot = FreeAutoTradingBot()
-
-    # Authentication
-    if not bot.load_saved_token():
-        if not bot.authenticate():
-            print("❌ Authentication failed. Exiting...")
-            exit()
-
-    # Load saved positions
-    bot.load_positions()
-
-    print(
-        "\n✅ Bot initialized. Running trading cycles every 15 minutes during market hours."
-    )
-    print("🔄 Rapid monitoring every 20 seconds for quick stop/target exits.")
-    print("=" * 60)
-
     print("🌐 Enhanced Web Dashboard is now running!")
     print("📱 Mobile app can connect to this dashboard")
+    print("⚠️  Bot initialization deferred - visit /initialize to start trading")
+    print("=" * 60)
 
-    # NEW: Pre-fill watchlist with dynamic top volatile stocks on startup.
-    bot.update_daily_stock_list()  # <-- Add this line here
+# Add this route to your Flask app for manual initialization:
+@app.route('/initialize')
+def initialize_bot():
+    try:
+        print("🔄 Starting bot initialization...")
+        
+        # Create bot instance
+        bot = FreeAutoTradingBot()
 
-    print("✅ Bot initialized and watchlist updated with fresh stocks.")
-    print(
-        "🕘 Starting scheduled trading cycles every 15 minutes during market hours.\n"
-    )
+        # Authentication
+        if not bot.load_saved_token():
+            if not bot.authenticate():
+                return "❌ Authentication failed", 500
 
-    schedule.every(15).minutes.do(bot.run_trading_cycle)
+        # Load saved positions
+        bot.load_positions()
 
-    threading.Thread(target=start_scheduled_trading, daemon=True).start()
-    
+        print("✅ Bot initialized. Setting up trading cycles...")
 
-    print(
-        "✅ Scheduled trading cycle every 15 minutes started in background thread."
-    )
+        # Update watchlist with dynamic stocks
+        bot.update_daily_stock_list()
+
+        print("✅ Watchlist updated with fresh stocks.")
+
+        # Set up scheduling
+        schedule.every(15).minutes.do(bot.run_trading_cycle)
+        threading.Thread(target=start_scheduled_trading, daemon=True).start()
+
+        print("✅ Scheduled trading cycle started in background thread.")
+        
+        return """
+        ✅ Bot initialization complete!<br>
+        🔄 Trading cycles running every 15 minutes<br>
+        📊 Rapid monitoring every 20 seconds<br>
+        🎯 Ready for trading during market hours
+        """
+        
+    except Exception as e:
+        print(f"❌ Initialization error: {e}")
+        return f"❌ Initialization failed: {e}", 500
+
+# Add a health check route
+@app.route('/health')
+def health_check():
+    return "OK", 200
+
+# Add a status route
+@app.route('/status')
+def bot_status():
+    return """
+    🤖 Trading Bot Status Dashboard<br>
+    📡 Server: Running<br>
+    🔗 <a href="/initialize">Initialize Bot</a><br>
+    🏠 <a href="/">Main Dashboard</a>
+    """
 
     def run_bot_cycles():
         time.sleep(5)
