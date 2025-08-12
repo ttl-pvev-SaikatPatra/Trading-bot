@@ -49,8 +49,8 @@ class FreeAutoTradingBot:
         self.bot_status = 'Initializing'
         self.total_trades_today = 0
         self.win_rate = 0
-        self.target_profit = 1.8  # 1.8% target profit change (realistic for intraday)
-        self.stop_loss = 0.6   # 0.6% stop loss (R:R = 2:1)
+        self.target_profit = 1.0  # 1.8% target profit change (realistic for intraday)
+        self.stop_loss = 0.5   # 0.6% stop loss (R:R = 2:1)
         self.daily_stock_list = []
         self._cache_lock = threading.Lock()
         self._last_cache_update = None
@@ -61,7 +61,7 @@ class FreeAutoTradingBot:
 
         # Risk management
         self.RISK_PER_TRADE = 0.04  # 4% of capital per trade
-        self.MAX_POSITIONS = 5  # Maximum 5 simultaneous positions
+        self.MAX_POSITIONS = 6  # Maximum 5 simultaneous positions
 
         # Set up logging
         logging.basicConfig(level=logging.INFO,
