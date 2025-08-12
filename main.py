@@ -1172,15 +1172,6 @@ def home():
     except Exception as e:
         return f"<h1>Error: {e}</h1>"
 
-@app.route('/set-token', methods=['POST'])
-def set_token_api():
-    try:
-        data = request.get_json()
-        request_token = data.get('request_token')
-        
-        if not request_token or len(request_token) != 32:
-            return {"success": False, "error": "Invalid token format"}, 400
-
 
 @app.route('/api/status')
 def api_status():
@@ -1359,14 +1350,52 @@ def api_refresh_watchlist():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
+@app.route('/initialize')
+def initialize_bot():
+    global bot_instance
+    try:
+        print("🔄 Starting bot initialization...")
+        
+        # Use existing authenticated bot instance
+        if not bot_instance:
+            return "❌ Bot not authenticated. Please authenticate first via Vercel app", 400
+        
+        if not bot_instance.access_token:
+            return "❌ Bot not authenticated. Please authenticate first via Vercel app", 400
+        
+        # Load saved positions
+        bot_instance.load_positions()
+        print("✅ Positions loaded")
+        
+        # Update watchlist with dynamic stocks
+        bot_instance.update_daily_stock_list()
+        print("✅ Watchlist updated with fresh stocks")
+        
+        # Set up trading cycle scheduling
+        schedule.clear()  # Clear any existing schedules
+        schedule.every(15).minutes.do(bot_instance.run_trading_cycle)
+        print("✅ Trading cycles scheduled every 15 minutes")
+        
+        return """
+        ✅ Bot initialization complete!<br>
+        🔄 Trading cycles running every 15 minutes<br>
+        📊 Rapid monitoring every 20 seconds<br>
+        🎯 Ready for trading during market hours<br>
+        <br>
+        <a href="/">← Back to Dashboard</a>
+        """
+        
+    except Exception as e:
+        print(f"❌ Initialization error: {e}")
+        return f"❌ Initialization failed: {e}<br><br><a href='/'>← Back to Dashboard</a>", 500
+
+
 
 def start_scheduled_trading():
     while True:
         schedule.run_pending()
         time.sleep(1)
 
-
-# === Main execution ===
 
 # === Main execution ===
 if __name__ == "__main__":
@@ -1380,126 +1409,39 @@ if __name__ == "__main__":
     print("=" * 60)
     print("🌐 Enhanced Web Dashboard is now running!")
     print("📱 Mobile app can connect to this dashboard")
-    print("⚠️  Bot initialization deferred - visit /initialize to start trading")
+    print("⚠️  Bot initialization deferred - authenticate via Vercel app first")
     print("=" * 60)
 
-# Add this route to your Flask app for manual initialization:
-@app.route('/initialize')
-def initialize_bot():
-    try:
-        print("🔄 Starting bot initialization...")
-        
-        # Create bot instance
-        bot = FreeAutoTradingBot()
-        success = bot.authenticate_with_token(request_token)
-        if success:
-            return {
-                "success": True, 
-                "message": "Authentication successful! Token saved.",
-                "redirect_url": "https://trading-bot-ynt2.onrender.com/initialize"
-            }
-        else:
-            return {"success": False, "error": "Authentication failed"}, 400
-            
-    except Exception as e:
-        return {"success": False, "error": str(e)}, 500
-
-@app.route('/token-status')
-def token_status():
-    """Check if a valid token exists"""
-    try:
-        bot = FreeAutoTradingBot()
-        has_valid_token = bot.load_saved_token()
-        return {
-            "has_token": has_valid_token,
-            "status": "Valid token found" if has_valid_token else "No valid token"
-        }
-    except:
-        return {"has_token": False, "status": "No token file found"}
-
-        # Authentication
-        if not bot.load_saved_token():
-            if not bot.authenticate():
-                return "❌ Authentication failed", 500
-
-        # Load saved positions
-        bot.load_positions()
-
-        print("✅ Bot initialized. Setting up trading cycles...")
-
-        # Update watchlist with dynamic stocks
-        bot.update_daily_stock_list()
-
-        print("✅ Watchlist updated with fresh stocks.")
-
-        # Set up scheduling
-        schedule.every(15).minutes.do(bot.run_trading_cycle)
-        threading.Thread(target=start_scheduled_trading, daemon=True).start()
-
-        print("✅ Scheduled trading cycle started in background thread.")
-        
-        return """
-        ✅ Bot initialization complete!<br>
-        🔄 Trading cycles running every 15 minutes<br>
-        📊 Rapid monitoring every 20 seconds<br>
-        🎯 Ready for trading during market hours
-        """
-        
-    except Exception as e:
-        print(f"❌ Initialization error: {e}")
-        return f"❌ Initialization failed: {e}", 500
-
-# Add a health check route
-@app.route('/health')
-def health_check():
-    return "OK", 200
-
-# Add a status route
-@app.route('/status')
-def bot_status():
-    return """
-    🤖 Trading Bot Status Dashboard<br>
-    📡 Server: Running<br>
-    🔗 <a href="/initialize">Initialize Bot</a><br>
-    🏠 <a href="/">Main Dashboard</a>
-    """
-
-    def run_bot_cycles():
-        time.sleep(5)
-        try:
-            bot.run_trading_cycle()
-        except Exception as e:
-            print(f"⚠️ Initial cycle error: {e}")
-        while True:
-            try:
-                schedule.run_pending()
-            except Exception as e:
-                print(f"⚠️ Scheduled cycle error: {e}")
-            time.sleep(5)
-
-    bot_thread = threading.Thread(target=run_bot_cycles)
-    bot_thread.daemon = True
-    bot_thread.start()
-
+    # Only start monitoring thread - no heavy operations
     def rapid_monitor():
         while True:
             try:
-                if bot_instance:
+                if bot_instance and hasattr(bot_instance, 'positions') and bot_instance.positions:
                     bot_instance.monitor_positions()
             except Exception as e:
                 print(f"[Monitor Thread Error]: {e}")
             time.sleep(20)
 
-    monitor_thread = threading.Thread(target=rapid_monitor)
-    monitor_thread.daemon = True
+    monitor_thread = threading.Thread(target=rapid_monitor, daemon=True)
     monitor_thread.start()
+    
+    # Start scheduling thread (will only run when bot_instance exists)
+    def run_scheduled_tasks():
+        while True:
+            try:
+                if bot_instance and hasattr(bot_instance, 'access_token') and bot_instance.access_token:
+                    schedule.run_pending()
+            except Exception as e:
+                print(f"[Scheduled Task Error]: {e}")
+            time.sleep(30)
 
-    keepalive_thread = threading.Thread(target=keep_alive_ping)
-    keepalive_thread.daemon = True
-    keepalive_thread.start()
+    schedule_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
+    schedule_thread.start()
 
-    print("🔄 Keep-alive system started.")
+    print("✅ Background monitoring threads started")
+    print("🚀 Flask server starting...")
 
+    # Start Flask app immediately (no blocking operations)
     try:
         app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
     except Exception as e:
