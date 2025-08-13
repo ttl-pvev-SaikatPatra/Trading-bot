@@ -363,7 +363,7 @@ class FreeAutoTradingBot:
             }
     
     def filter_by_liquidity_and_volume(self, candidates):
-        """Filter stocks by liquidity and volume using Yahoo Finance - FREE"""
+        """Filter stocks by liquidity and volume using Yahoo Finance - RELAXED FILTERS"""
         try:
             print("💧 Applying liquidity and volume filters via Yahoo Finance...")
             
@@ -379,26 +379,26 @@ class FreeAutoTradingBot:
                     yahoo_symbol = f"{symbol}.NS"
                     ticker = yf.Ticker(yahoo_symbol)
                     
-                    # Get recent data for volume analysis (5 days for better volume analysis)
+                    # Get recent data for volume analysis
                     hist = ticker.history(period="5d")
                     
                     if len(hist) >= 2:
-                        current_volume = int(hist['Volume'][-1])
+                        current_volume = int(hist['Volume'].iloc[-1])
                         avg_volume = int(hist['Volume'].mean())
-                        current_price = float(hist['Close'][-1])
-                        high = float(hist['High'][-1])
-                        low = float(hist['Low'][-1])
+                        current_price = float(hist['Close'].iloc[-1])
+                        high = float(hist['High'].iloc[-1])
+                        low = float(hist['Low'].iloc[-1])
                         
                         # Calculate volume ratio
-                        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+                        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.2
                         
-                        # Apply filters
-                        min_volume = 100000  # Minimum 1 lakh shares
-                        min_volume_ratio = 1.2  # At least 20% above average
-                        min_price = 10  # Minimum price ₹10
-                        max_price = 10000  # Maximum price ₹10000
+                        # RELAXED FILTERS - More permissive
+                        min_volume = 50000      # Reduced from 100,000 to 50,000
+                        min_volume_ratio = 0.8  # Reduced from 1.2 to 0.8 (accept lower volume days)
+                        min_price = 5           # Reduced from 10 to 5
+                        max_price = 15000       # Increased from 10,000 to 15,000
                         
-                        # Check all criteria
+                        # Check all criteria (more lenient)
                         if (current_volume >= min_volume and 
                             volume_ratio >= min_volume_ratio and 
                             min_price <= current_price <= max_price):
@@ -424,33 +424,56 @@ class FreeAutoTradingBot:
                             
                 except Exception as e:
                     print(f"Error processing {symbol}: {e}")
-                    # Include stock with default values if data fetch fails
+                    # INCLUDE MORE STOCKS - Don't be too picky
                     default_stock = stock.copy()
                     default_stock.update({
-                        "volume": 200000,  # Default volume
-                        "volume_ratio": 1.5,  # Default ratio
-                        "range": abs(stock.get("price_change", 1)) * 1.2
+                        "volume": 150000,  # Default volume
+                        "volume_ratio": 1.3,  # Default ratio
+                        "range": abs(stock.get("price_change", 1)) * 1.2,
+                        "current_price": 500  # Default price
                     })
                     filtered_stocks.append(default_stock)
                     continue
+            
+            # If still too few stocks, add fallback stocks
+            if len(filtered_stocks) < 6:
+                print(f"⚠️ Only {len(filtered_stocks)} stocks passed filters. Adding popular fallback stocks...")
+                
+                popular_fallback = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "WIPRO", "MARUTI", "TITAN", "BAJFINANCE"]
+                
+                for symbol in popular_fallback:
+                    if len(filtered_stocks) >= 8:
+                        break
+                        
+                    # Check if already in list
+                    if not any(stock["symbol"] == symbol for stock in filtered_stocks):
+                        filtered_stocks.append({
+                            "symbol": symbol,
+                            "price_change": 1.5,  # Default
+                            "range": 2.5,  # Default
+                            "volume": 200000,
+                            "volume_ratio": 1.4,
+                            "current_price": 1000  # Default
+                        })
             
             # Sort by volume ratio (higher liquidity first)
             filtered_stocks.sort(key=lambda x: x.get("volume_ratio", 1), reverse=True)
             
             print(f"✅ Filtered to {len(filtered_stocks)} liquid stocks from {len(candidates)} candidates")
             
-            return filtered_stocks
+            return filtered_stocks[:12]  # Return maximum 12 stocks
             
         except Exception as e:
-            print(f"❌ Error in liquidity filtering via Yahoo Finance: {e}")
-            # Return original candidates with default volume data
+            print(f"❌ Error in liquidity filtering: {e}")
+            # Return ALL candidates with default data if filtering completely fails
             for stock in candidates:
                 if "volume_ratio" not in stock:
                     stock["volume_ratio"] = 1.5
                 if "range" not in stock:
                     stock["range"] = abs(stock.get("price_change", 1)) * 1.2
             
-            return candidates
+            return candidates  # Return all candidates
+
     
     def safe_yahoo_call(self, func, *args, **kwargs):
         """Safely make Yahoo Finance calls with retry logic"""
