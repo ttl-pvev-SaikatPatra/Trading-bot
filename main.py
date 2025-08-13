@@ -308,15 +308,14 @@ class FreeAutoTradingBot:
 
     def update_daily_stock_list(self):
         """
-        Safely update the cached stock list by picking top volatile stocks.
+        Safely update the cached stock list by selecting precise trading stocks.
         """
         try:
             with self._cache_lock:
                 self.logger.info(
-                    "⏳ Updating daily stock list based on volatility and volume metrics..."
+                    "⏳ Updating daily stock list using precise selection algorithm..."
                 )
-                self.daily_stock_list = self.pick_top_stocks_by_volatility(
-                    volume_threshold=300000, top_n=15)
+                self.daily_stock_list = self.select_precise_stocks_for_trading()
                 self._last_cache_update = self.get_ist_time()
                 self.logger.info(
                     f"✅ Daily stock list updated at {self._last_cache_update.strftime('%H:%M:%S IST')}"
