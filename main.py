@@ -172,14 +172,13 @@ class FreeAutoTradingBot:
         # top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
         # self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
         # return top_stocks
-    def get_todays_market_leaders(self):
-        """Get today's top gainers and losers from market data"""
+   def get_todays_market_leaders(self):
+        """Get today's top gainers and losers using Yahoo Finance - FREE"""
         try:
-            print("📊 Fetching today's market leaders...")
+            print("📊 Fetching today's market leaders from Yahoo Finance...")
             
-            # Get NSE equity instruments
-            instruments = self.kite.instruments("NSE")
-            equity_instruments = [inst for inst in instruments if inst['instrument_type'] == 'EQ']
+            import yfinance as yf
+            import time
             
             # Get market data for top stocks (you can expand this list)
             top_symbols = [
@@ -194,29 +193,36 @@ class FreeAutoTradingBot:
             
             for symbol in top_symbols:
                 try:
-                    # Get OHLC data
-                    ohlc_data = self.kite.ohlc(f"NSE:{symbol}")
-                    if f"NSE:{symbol}" in ohlc_data:
-                        data = ohlc_data[f"NSE:{symbol}"]
+                    # Add .NS suffix for Yahoo Finance NSE data
+                    yahoo_symbol = f"{symbol}.NS"
+                    ticker = yf.Ticker(yahoo_symbol)
+                    
+                    # Get 2 days of data to calculate change
+                    hist = ticker.history(period="2d")
+                    
+                    if len(hist) >= 2:
+                        current_price = float(hist['Close'][-1])
+                        prev_close = float(hist['Close'][-2])
+                        high = float(hist['High'][-1])
+                        low = float(hist['Low'][-1])
+                        volume = int(hist['Volume'][-1])
                         
                         # Calculate price change percentage
-                        current_price = data['last_price']
-                        prev_close = data['ohlc']['close']
                         price_change = ((current_price - prev_close) / prev_close) * 100
                         
-                        # Calculate volume (if available)
-                        volume = data.get('volume', 0)
-                        
                         market_data.append({
-                            "symbol": symbol,
+                            "symbol": symbol,  # Original NSE symbol
                             "price_change": round(price_change, 2),
                             "volume": volume,
                             "current_price": current_price,
                             "prev_close": prev_close,
-                            "high": data['ohlc']['high'],
-                            "low": data['ohlc']['low']
+                            "high": high,
+                            "low": low
                         })
-                        
+                    
+                    # Small delay to avoid overwhelming Yahoo Finance
+                    time.sleep(0.1)
+                    
                 except Exception as e:
                     print(f"Error fetching data for {symbol}: {e}")
                     continue
@@ -234,42 +240,45 @@ class FreeAutoTradingBot:
                 "top_losers": losers
             }
             
-            print(f"✅ Found {len(gainers)} gainers and {len(losers)} losers")
+            print(f"✅ Found {len(gainers)} gainers and {len(losers)} losers via Yahoo Finance")
             return result
             
         except Exception as e:
-            print(f"❌ Error fetching market leaders: {e}")
+            print(f"❌ Error fetching market leaders from Yahoo Finance: {e}")
             # Return fallback data
             return {
                 "top_gainers": [
-                    {"symbol": "RELIANCE", "price_change": 2.5, "volume": 1000000},
-                    {"symbol": "TCS", "price_change": 2.1, "volume": 800000},
-                    {"symbol": "INFY", "price_change": 1.8, "volume": 700000}
+                    {"symbol": "RELIANCE", "price_change": 2.5, "volume": 1000000, "high": 2850, "low": 2800, "current_price": 2845, "prev_close": 2775},
+                    {"symbol": "TCS", "price_change": 2.1, "volume": 800000, "high": 3650, "low": 3580, "current_price": 3645, "prev_close": 3570},
+                    {"symbol": "INFY", "price_change": 1.8, "volume": 700000, "high": 1485, "low": 1450, "current_price": 1480, "prev_close": 1454}
                 ],
                 "top_losers": [
-                    {"symbol": "HDFCBANK", "price_change": -1.5, "volume": 900000},
-                    {"symbol": "ICICIBANK", "price_change": -1.2, "volume": 600000},
-                    {"symbol": "AXISBANK", "price_change": -1.0, "volume": 500000}
+                    {"symbol": "HDFCBANK", "price_change": -1.5, "volume": 900000, "high": 1650, "low": 1610, "current_price": 1615, "prev_close": 1640},
+                    {"symbol": "ICICIBANK", "price_change": -1.2, "volume": 600000, "high": 1150, "low": 1120, "current_price": 1125, "prev_close": 1139},
+                    {"symbol": "AXISBANK", "price_change": -1.0, "volume": 500000, "high": 1095, "low": 1070, "current_price": 1075, "prev_close": 1086}
                 ]
             }
-
+    
     def identify_strong_sectors_today(self):
-        """Identify strong performing sectors based on stock movements"""
+        """Identify strong performing sectors using Yahoo Finance - FREE"""
         try:
-            print("🏭 Analyzing sector performance...")
+            print("🏭 Analyzing sector performance via Yahoo Finance...")
+            
+            import yfinance as yf
+            import time
             
             # Define sector mappings
             sector_stocks = {
-                "IT": ["TCS", "INFY", "WIPRO", "HCLTECH", "TECHM", "LTTS", "MINDTREE"],
+                "IT": ["TCS", "INFY", "WIPRO", "HCLTECH", "TECHM", "LTTS"],
                 "Banking": ["HDFCBANK", "ICICIBANK", "KOTAKBANK", "AXISBANK", "INDUSINDBK", "SBIN"],
-                "Auto": ["MARUTI", "TATAMOTORS", "M&M", "BAJAJ-AUTO", "EICHERMOT", "HEROMODCORP"],
-                "Pharma": ["SUNPHARMA", "DRREDDY", "CIPLA", "LUPIN", "BIOCON", "CADILAHC"],
+                "Auto": ["MARUTI", "TATAMOTORS", "M&M", "BAJAJ-AUTO", "EICHERMOT"],
+                "Pharma": ["SUNPHARMA", "DRREDDY", "CIPLA", "LUPIN", "BIOCON"],
                 "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA", "DABUR", "MARICO"],
-                "Metals": ["TATASTEEL", "JSWSTEEL", "HINDALCO", "VEDL", "JINDALSTEL", "SAIL"],
+                "Metals": ["TATASTEEL", "JSWSTEEL", "HINDALCO", "VEDL", "JINDALSTEL"],
                 "Energy": ["RELIANCE", "ONGC", "BPCL", "IOC", "GAIL", "COALINDIA"],
-                "Cement": ["ULTRACEMCO", "SHREECEM", "ACC", "AMBUJACEMENT", "JKCEMENT"],
-                "Telecom": ["BHARTIARTL", "IDEA", "RCOM"],
-                "Finance": ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "ICICIGI"]
+                "Cement": ["ULTRACEMCO", "SHREECEM", "ACC", "AMBUJACEMENT"],
+                "Telecom": ["BHARTIARTL", "IDEA"],
+                "Finance": ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE"]
             }
             
             sector_performance = {}
@@ -281,24 +290,29 @@ class FreeAutoTradingBot:
                 
                 for symbol in stocks:
                     try:
-                        # Get OHLC data
-                        ohlc_data = self.kite.ohlc(f"NSE:{symbol}")
-                        if f"NSE:{symbol}" in ohlc_data:
-                            data = ohlc_data[f"NSE:{symbol}"]
+                        yahoo_symbol = f"{symbol}.NS"
+                        ticker = yf.Ticker(yahoo_symbol)
+                        hist = ticker.history(period="2d")
+                        
+                        if len(hist) >= 2:
+                            current_price = float(hist['Close'][-1])
+                            prev_close = float(hist['Close'][-2])
+                            volume = int(hist['Volume'][-1])
                             
                             # Calculate price change
-                            current_price = data['last_price']
-                            prev_close = data['ohlc']['close']
                             price_change = ((current_price - prev_close) / prev_close) * 100
                             
                             sector_data.append({
                                 "symbol": symbol,
                                 "change": round(price_change, 2),
-                                "volume": data.get('volume', 0)
+                                "volume": volume
                             })
                             
                             total_change += price_change
                             valid_stocks += 1
+                        
+                        # Small delay
+                        time.sleep(0.1)
                             
                     except Exception as e:
                         continue
@@ -320,39 +334,41 @@ class FreeAutoTradingBot:
                                        key=lambda x: x[1]['average_change'], 
                                        reverse=True))
             
-            print(f"✅ Analyzed {len(sorted_sectors)} sectors")
+            print(f"✅ Analyzed {len(sorted_sectors)} sectors via Yahoo Finance")
             for sector, data in list(sorted_sectors.items())[:3]:
                 print(f"   {sector}: Avg {data['average_change']}% ({data['total_stocks']} stocks)")
             
             return sorted_sectors
             
         except Exception as e:
-            print(f"❌ Error analyzing sectors: {e}")
+            print(f"❌ Error analyzing sectors via Yahoo Finance: {e}")
             # Return fallback data
             return {
                 "IT": {
                     "average_change": 1.5,
                     "strong_stocks": [
-                        {"symbol": "TCS", "change": 2.1},
-                        {"symbol": "INFY", "change": 1.8}
+                        {"symbol": "TCS", "change": 2.1, "volume": 800000},
+                        {"symbol": "INFY", "change": 1.8, "volume": 700000}
                     ],
                     "total_stocks": 2
                 },
                 "Banking": {
                     "average_change": 0.8,
                     "strong_stocks": [
-                        {"symbol": "HDFCBANK", "change": 1.2},
-                        {"symbol": "KOTAKBANK", "change": 0.9}
+                        {"symbol": "HDFCBANK", "change": 1.2, "volume": 900000},
+                        {"symbol": "KOTAKBANK", "change": 0.9, "volume": 650000}
                     ],
                     "total_stocks": 2
                 }
             }
-
-
+    
     def filter_by_liquidity_and_volume(self, candidates):
-        """Filter stocks by liquidity and volume criteria"""
+        """Filter stocks by liquidity and volume using Yahoo Finance - FREE"""
         try:
-            print("💧 Applying liquidity and volume filters...")
+            print("💧 Applying liquidity and volume filters via Yahoo Finance...")
+            
+            import yfinance as yf
+            import time
             
             filtered_stocks = []
             
@@ -360,51 +376,52 @@ class FreeAutoTradingBot:
                 symbol = stock["symbol"]
                 
                 try:
-                    # Get current market data
-                    ohlc_data = self.kite.ohlc(f"NSE:{symbol}")
-                    if f"NSE:{symbol}" not in ohlc_data:
-                        continue
+                    yahoo_symbol = f"{symbol}.NS"
+                    ticker = yf.Ticker(yahoo_symbol)
                     
-                    data = ohlc_data[f"NSE:{symbol}"]
-                    current_volume = data.get('volume', 0)
+                    # Get recent data for volume analysis (5 days for better volume analysis)
+                    hist = ticker.history(period="5d")
                     
-                    # Get historical average volume (simplified - using current volume as baseline)
-                    # In a full implementation, you'd calculate 10-day or 30-day average
-                    avg_volume = current_volume * 0.8  # Assume current is 20% above average
-                    
-                    # Calculate volume ratio
-                    volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
-                    
-                    # Apply filters
-                    min_volume = 100000  # Minimum 1 lakh shares
-                    min_volume_ratio = 1.2  # At least 20% above average
-                    min_price = 10  # Minimum price ₹10
-                    max_price = 5000  # Maximum price ₹5000
-                    
-                    current_price = data['last_price']
-                    
-                    # Check all criteria
-                    if (current_volume >= min_volume and 
-                        volume_ratio >= min_volume_ratio and 
-                        min_price <= current_price <= max_price):
+                    if len(hist) >= 2:
+                        current_volume = int(hist['Volume'][-1])
+                        avg_volume = int(hist['Volume'].mean())
+                        current_price = float(hist['Close'][-1])
+                        high = float(hist['High'][-1])
+                        low = float(hist['Low'][-1])
                         
-                        # Add calculated fields to stock data
-                        enhanced_stock = stock.copy()
-                        enhanced_stock.update({
-                            "volume": current_volume,
-                            "volume_ratio": round(volume_ratio, 2),
-                            "current_price": current_price,
-                            "avg_volume": int(avg_volume)
-                        })
+                        # Calculate volume ratio
+                        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
                         
-                        # Ensure range is calculated if missing
-                        if "range" not in enhanced_stock:
-                            high = data['ohlc']['high']
-                            low = data['ohlc']['low']
-                            enhanced_stock["range"] = round(((high - low) / low) * 100, 2)
+                        # Apply filters
+                        min_volume = 100000  # Minimum 1 lakh shares
+                        min_volume_ratio = 1.2  # At least 20% above average
+                        min_price = 10  # Minimum price ₹10
+                        max_price = 10000  # Maximum price ₹10000
                         
-                        filtered_stocks.append(enhanced_stock)
-                        
+                        # Check all criteria
+                        if (current_volume >= min_volume and 
+                            volume_ratio >= min_volume_ratio and 
+                            min_price <= current_price <= max_price):
+                            
+                            # Add calculated fields to stock data
+                            enhanced_stock = stock.copy()
+                            enhanced_stock.update({
+                                "volume": current_volume,
+                                "volume_ratio": round(volume_ratio, 2),
+                                "current_price": current_price,
+                                "avg_volume": avg_volume
+                            })
+                            
+                            # Calculate range if missing
+                            if "range" not in enhanced_stock:
+                                range_pct = ((high - low) / low) * 100
+                                enhanced_stock["range"] = round(range_pct, 2)
+                            
+                            filtered_stocks.append(enhanced_stock)
+                    
+                    # Small delay
+                    time.sleep(0.1)
+                            
                 except Exception as e:
                     print(f"Error processing {symbol}: {e}")
                     # Include stock with default values if data fetch fails
@@ -425,7 +442,7 @@ class FreeAutoTradingBot:
             return filtered_stocks
             
         except Exception as e:
-            print(f"❌ Error in liquidity filtering: {e}")
+            print(f"❌ Error in liquidity filtering via Yahoo Finance: {e}")
             # Return original candidates with default volume data
             for stock in candidates:
                 if "volume_ratio" not in stock:
@@ -434,9 +451,11 @@ class FreeAutoTradingBot:
                     stock["range"] = abs(stock.get("price_change", 1)) * 1.2
             
             return candidates
-
-    def safe_kite_call(self, func, *args, **kwargs):
-        """Safely make Kite API calls with retry logic"""
+    
+    def safe_yahoo_call(self, func, *args, **kwargs):
+        """Safely make Yahoo Finance calls with retry logic"""
+        import time
+        
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -444,10 +463,9 @@ class FreeAutoTradingBot:
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise e
-                print(f"API call failed (attempt {attempt + 1}): {e}")
-                time.sleep(1)  # Wait 1 second before retry
+                print(f"Yahoo Finance call failed (attempt {attempt + 1}): {e}")
+                time.sleep(2)  # Wait 2 seconds before retry
         return None
-
     
     def select_precise_stocks_for_trading(self):
         """Final precise stock selection combining all factors"""
