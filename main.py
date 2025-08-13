@@ -172,7 +172,7 @@ class FreeAutoTradingBot:
         # top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
         # self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
         # return top_stocks
-     def get_todays_market_leaders(self):
+    def get_todays_market_leaders(self):
         """Get today's top gainers and losers using Yahoo Finance - FREE"""
         try:
             print("📊 Fetching today's market leaders from Yahoo Finance...")
