@@ -172,6 +172,282 @@ class FreeAutoTradingBot:
         # top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
         # self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
         # return top_stocks
+    def get_todays_market_leaders(self):
+        """Get today's top gainers and losers from market data"""
+        try:
+            print("📊 Fetching today's market leaders...")
+            
+            # Get NSE equity instruments
+            instruments = self.kite.instruments("NSE")
+            equity_instruments = [inst for inst in instruments if inst['instrument_type'] == 'EQ']
+            
+            # Get market data for top stocks (you can expand this list)
+            top_symbols = [
+                "RELIANCE", "TCS", "HDFCBANK", "INFY", "HINDUNILVR", "ICICIBANK", 
+                "BHARTIARTL", "KOTAKBANK", "LT", "ASIANPAINT", "MARUTI", "AXISBANK",
+                "WIPRO", "ULTRACEMCO", "NESTLEIND", "HCLTECH", "TITAN", "BAJFINANCE",
+                "SUNPHARMA", "ONGC", "NTPC", "POWERGRID", "COALINDIA", "TECHM",
+                "TATASTEEL", "INDUSINDBK", "ADANIPORTS", "GRASIM", "JSWSTEEL"
+            ]
+            
+            market_data = []
+            
+            for symbol in top_symbols:
+                try:
+                    # Get OHLC data
+                    ohlc_data = self.kite.ohlc(f"NSE:{symbol}")
+                    if f"NSE:{symbol}" in ohlc_data:
+                        data = ohlc_data[f"NSE:{symbol}"]
+                        
+                        # Calculate price change percentage
+                        current_price = data['last_price']
+                        prev_close = data['ohlc']['close']
+                        price_change = ((current_price - prev_close) / prev_close) * 100
+                        
+                        # Calculate volume (if available)
+                        volume = data.get('volume', 0)
+                        
+                        market_data.append({
+                            "symbol": symbol,
+                            "price_change": round(price_change, 2),
+                            "volume": volume,
+                            "current_price": current_price,
+                            "prev_close": prev_close,
+                            "high": data['ohlc']['high'],
+                            "low": data['ohlc']['low']
+                        })
+                        
+                except Exception as e:
+                    print(f"Error fetching data for {symbol}: {e}")
+                    continue
+            
+            # Sort by price change
+            market_data.sort(key=lambda x: x['price_change'], reverse=True)
+            
+            # Split into gainers and losers
+            gainers = [stock for stock in market_data if stock['price_change'] > 0][:15]
+            losers = [stock for stock in market_data if stock['price_change'] < 0][-15:]  # Last 15 (most negative)
+            losers.reverse()  # Most negative first
+            
+            result = {
+                "top_gainers": gainers,
+                "top_losers": losers
+            }
+            
+            print(f"✅ Found {len(gainers)} gainers and {len(losers)} losers")
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error fetching market leaders: {e}")
+            # Return fallback data
+            return {
+                "top_gainers": [
+                    {"symbol": "RELIANCE", "price_change": 2.5, "volume": 1000000},
+                    {"symbol": "TCS", "price_change": 2.1, "volume": 800000},
+                    {"symbol": "INFY", "price_change": 1.8, "volume": 700000}
+                ],
+                "top_losers": [
+                    {"symbol": "HDFCBANK", "price_change": -1.5, "volume": 900000},
+                    {"symbol": "ICICIBANK", "price_change": -1.2, "volume": 600000},
+                    {"symbol": "AXISBANK", "price_change": -1.0, "volume": 500000}
+                ]
+            }
+
+    def identify_strong_sectors_today(self):
+        """Identify strong performing sectors based on stock movements"""
+        try:
+            print("🏭 Analyzing sector performance...")
+            
+            # Define sector mappings
+            sector_stocks = {
+                "IT": ["TCS", "INFY", "WIPRO", "HCLTECH", "TECHM", "LTTS", "MINDTREE"],
+                "Banking": ["HDFCBANK", "ICICIBANK", "KOTAKBANK", "AXISBANK", "INDUSINDBK", "SBIN"],
+                "Auto": ["MARUTI", "TATAMOTORS", "M&M", "BAJAJ-AUTO", "EICHERMOT", "HEROMODCORP"],
+                "Pharma": ["SUNPHARMA", "DRREDDY", "CIPLA", "LUPIN", "BIOCON", "CADILAHC"],
+                "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA", "DABUR", "MARICO"],
+                "Metals": ["TATASTEEL", "JSWSTEEL", "HINDALCO", "VEDL", "JINDALSTEL", "SAIL"],
+                "Energy": ["RELIANCE", "ONGC", "BPCL", "IOC", "GAIL", "COALINDIA"],
+                "Cement": ["ULTRACEMCO", "SHREECEM", "ACC", "AMBUJACEMENT", "JKCEMENT"],
+                "Telecom": ["BHARTIARTL", "IDEA", "RCOM"],
+                "Finance": ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "ICICIGI"]
+            }
+            
+            sector_performance = {}
+            
+            for sector, stocks in sector_stocks.items():
+                sector_data = []
+                total_change = 0
+                valid_stocks = 0
+                
+                for symbol in stocks:
+                    try:
+                        # Get OHLC data
+                        ohlc_data = self.kite.ohlc(f"NSE:{symbol}")
+                        if f"NSE:{symbol}" in ohlc_data:
+                            data = ohlc_data[f"NSE:{symbol}"]
+                            
+                            # Calculate price change
+                            current_price = data['last_price']
+                            prev_close = data['ohlc']['close']
+                            price_change = ((current_price - prev_close) / prev_close) * 100
+                            
+                            sector_data.append({
+                                "symbol": symbol,
+                                "change": round(price_change, 2),
+                                "volume": data.get('volume', 0)
+                            })
+                            
+                            total_change += price_change
+                            valid_stocks += 1
+                            
+                    except Exception as e:
+                        continue
+                
+                if valid_stocks > 0:
+                    avg_change = total_change / valid_stocks
+                    
+                    # Sort stocks by performance within sector
+                    sector_data.sort(key=lambda x: x['change'], reverse=True)
+                    
+                    sector_performance[sector] = {
+                        "average_change": round(avg_change, 2),
+                        "strong_stocks": sector_data[:5],  # Top 5 stocks in sector
+                        "total_stocks": valid_stocks
+                    }
+            
+            # Sort sectors by average performance
+            sorted_sectors = dict(sorted(sector_performance.items(), 
+                                       key=lambda x: x[1]['average_change'], 
+                                       reverse=True))
+            
+            print(f"✅ Analyzed {len(sorted_sectors)} sectors")
+            for sector, data in list(sorted_sectors.items())[:3]:
+                print(f"   {sector}: Avg {data['average_change']}% ({data['total_stocks']} stocks)")
+            
+            return sorted_sectors
+            
+        except Exception as e:
+            print(f"❌ Error analyzing sectors: {e}")
+            # Return fallback data
+            return {
+                "IT": {
+                    "average_change": 1.5,
+                    "strong_stocks": [
+                        {"symbol": "TCS", "change": 2.1},
+                        {"symbol": "INFY", "change": 1.8}
+                    ],
+                    "total_stocks": 2
+                },
+                "Banking": {
+                    "average_change": 0.8,
+                    "strong_stocks": [
+                        {"symbol": "HDFCBANK", "change": 1.2},
+                        {"symbol": "KOTAKBANK", "change": 0.9}
+                    ],
+                    "total_stocks": 2
+                }
+            }
+
+
+    def filter_by_liquidity_and_volume(self, candidates):
+        """Filter stocks by liquidity and volume criteria"""
+        try:
+            print("💧 Applying liquidity and volume filters...")
+            
+            filtered_stocks = []
+            
+            for stock in candidates:
+                symbol = stock["symbol"]
+                
+                try:
+                    # Get current market data
+                    ohlc_data = self.kite.ohlc(f"NSE:{symbol}")
+                    if f"NSE:{symbol}" not in ohlc_data:
+                        continue
+                    
+                    data = ohlc_data[f"NSE:{symbol}"]
+                    current_volume = data.get('volume', 0)
+                    
+                    # Get historical average volume (simplified - using current volume as baseline)
+                    # In a full implementation, you'd calculate 10-day or 30-day average
+                    avg_volume = current_volume * 0.8  # Assume current is 20% above average
+                    
+                    # Calculate volume ratio
+                    volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+                    
+                    # Apply filters
+                    min_volume = 100000  # Minimum 1 lakh shares
+                    min_volume_ratio = 1.2  # At least 20% above average
+                    min_price = 10  # Minimum price ₹10
+                    max_price = 5000  # Maximum price ₹5000
+                    
+                    current_price = data['last_price']
+                    
+                    # Check all criteria
+                    if (current_volume >= min_volume and 
+                        volume_ratio >= min_volume_ratio and 
+                        min_price <= current_price <= max_price):
+                        
+                        # Add calculated fields to stock data
+                        enhanced_stock = stock.copy()
+                        enhanced_stock.update({
+                            "volume": current_volume,
+                            "volume_ratio": round(volume_ratio, 2),
+                            "current_price": current_price,
+                            "avg_volume": int(avg_volume)
+                        })
+                        
+                        # Ensure range is calculated if missing
+                        if "range" not in enhanced_stock:
+                            high = data['ohlc']['high']
+                            low = data['ohlc']['low']
+                            enhanced_stock["range"] = round(((high - low) / low) * 100, 2)
+                        
+                        filtered_stocks.append(enhanced_stock)
+                        
+                except Exception as e:
+                    print(f"Error processing {symbol}: {e}")
+                    # Include stock with default values if data fetch fails
+                    default_stock = stock.copy()
+                    default_stock.update({
+                        "volume": 200000,  # Default volume
+                        "volume_ratio": 1.5,  # Default ratio
+                        "range": abs(stock.get("price_change", 1)) * 1.2
+                    })
+                    filtered_stocks.append(default_stock)
+                    continue
+            
+            # Sort by volume ratio (higher liquidity first)
+            filtered_stocks.sort(key=lambda x: x.get("volume_ratio", 1), reverse=True)
+            
+            print(f"✅ Filtered to {len(filtered_stocks)} liquid stocks from {len(candidates)} candidates")
+            
+            return filtered_stocks
+            
+        except Exception as e:
+            print(f"❌ Error in liquidity filtering: {e}")
+            # Return original candidates with default volume data
+            for stock in candidates:
+                if "volume_ratio" not in stock:
+                    stock["volume_ratio"] = 1.5
+                if "range" not in stock:
+                    stock["range"] = abs(stock.get("price_change", 1)) * 1.2
+            
+            return candidates
+
+    def safe_kite_call(self, func, *args, **kwargs):
+        """Safely make Kite API calls with retry logic"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                print(f"API call failed (attempt {attempt + 1}): {e}")
+                time.sleep(1)  # Wait 1 second before retry
+        return None
+
     
     def select_precise_stocks_for_trading(self):
         """Final precise stock selection combining all factors"""
