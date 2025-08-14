@@ -123,19 +123,29 @@ class FreeAutoTradingBot:
                                 threads=False)
 
                 # Flatten MultiIndex columns to single level if needed
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = [col[0] for col in df.columns]
+                # Flatten MultiIndex columns to single level if needed
+            if isinstance(df.columns, pd.MultiIndex):
+                # If columns are tuples, join non-empty parts; else keep as string
+                df.columns = [
+                    "_".join([str(p) for p in col if str(p) and str(p) != "None"])
+                    if isinstance(col, tuple) else str(col)
+                for col in df.columns]
 
-                if df.empty:
-                    continue
+            # Normalize column names to lowercase to match indicator functions
+            df.columns = [str(c).strip().lower() for c in df.columns]
 
-                required_cols = ['Volume', 'High', 'Low', 'Close']
-                if not all(col in df.columns for col in required_cols):
-                    missing_cols = list(set(required_cols) - set(df.columns))
-                    self.logger.warning(
-                        f"Data error for {symbol}: missing columns - {missing_cols}"
-                    )
-                    continue
+            # Skip if empty after cleaning
+            if df.empty:
+                continue
+
+            required_cols = ['volume', 'high', 'low', 'close']
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            if missing_cols:
+                self.logger.warning(
+                    f"Data error for {symbol}: missing columns - {missing_cols}"
+                )
+                continue
+
 
                 df = df.dropna(subset=required_cols)
                 if df.empty:
