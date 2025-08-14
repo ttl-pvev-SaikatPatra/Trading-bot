@@ -73,85 +73,85 @@ class FreeAutoTradingBot:
 
 
     def pick_top_stocks_by_volatility(self, volume_threshold=300000, top_n=15):
-    stock_list = [
-        'RELIANCE.NS', 'TCS.NS', 'ICICIBANK.NS', 'LT.NS', 'POLYCAB.NS',
-        'HDFCBANK.NS', 'ASIANPAINT.NS', 'BHARTIARTL.NS', 'TATAMOTORS.NS',
-        'ITC.NS', 'BAJFINANCE.NS', 'INFY.NS', 'AXISBANK.NS', 'MARUTI.NS',
-        'ADANIGREEN.NS', 'BHEL.NS', 'ADANIPORTS.NS', 'CANBK.NS',
-        'HAVELLS.NS', 'COALINDIA.NS', 'TATAELXSI.NS', 'RBLBANK.NS',
-        'BANKBARODA.NS', 'POLYCAB.NS', 'DEEPAKNTR.NS', 'PIDILITIND.NS',
-        'CUMMINSIND.NS', 'COFORGE.NS', 'NAUKRI.NS'
-    ]
-    ranking = []  # Keep same level as stock_list
+        stock_list = [
+            'RELIANCE.NS', 'TCS.NS', 'ICICIBANK.NS', 'LT.NS', 'POLYCAB.NS',
+            'HDFCBANK.NS', 'ASIANPAINT.NS', 'BHARTIARTL.NS', 'TATAMOTORS.NS',
+            'ITC.NS', 'BAJFINANCE.NS', 'INFY.NS', 'AXISBANK.NS', 'MARUTI.NS',
+            'ADANIGREEN.NS', 'BHEL.NS', 'ADANIPORTS.NS', 'CANBK.NS',
+            'HAVELLS.NS', 'COALINDIA.NS', 'TATAELXSI.NS', 'RBLBANK.NS',
+            'BANKBARODA.NS', 'POLYCAB.NS', 'DEEPAKNTR.NS', 'PIDILITIND.NS',
+            'CUMMINSIND.NS', 'COFORGE.NS', 'NAUKRI.NS'
+        ]
+        ranking = []  # Keep same level as stock_list
 
-    for symbol in stock_list:
-        try:
-            df = yf.download(
-                symbol,
-                period='10d',
-                interval='1d',
-                progress=False,
-                auto_adjust=False,
-                threads=False
-            )
+        for symbol in stock_list:
+            try:
+                df = yf.download(
+                    symbol,
+                    period='10d',
+                    interval='1d',
+                    progress=False,
+                    auto_adjust=False,
+                    threads=False
+                )
 
             # Flatten MultiIndex columns to single level if needed
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = [
-                    "_".join([str(p) for p in col if p and str(p) != "None"]).strip()
-                    if isinstance(col, tuple) else str(col)
-                    for col in df.columns
-                ]
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = [
+                        "_".join([str(p) for p in col if p and str(p) != "None"]).strip()
+                        if isinstance(col, tuple) else str(col)
+                        for col in df.columns
+                    ]
 
-            # Normalize column names
-            df.columns = [str(c).strip().lower() for c in df.columns]
+                # Normalize column names
+                df.columns = [str(c).strip().lower() for c in df.columns]
 
-            # Skip if empty
-            if df.empty:
+                # Skip if empty
+                if df.empty:
+                    continue
+
+                required_cols = ['volume', 'high', 'low', 'close']
+                missing_cols = [c for c in required_cols if c not in df.columns]
+                if missing_cols:
+                    self.logger.warning(
+                        f"Data error for {symbol}: missing columns - {missing_cols}"
+                    )
+                    continue
+
+                df = df.dropna(subset=required_cols)
+                if df.empty:
+                    continue
+
+                avg_volume = df['volume'].tail(5).mean()
+                self.logger.info(f"{symbol}: Recent avg volume = {avg_volume}")
+                if pd.isna(avg_volume) or avg_volume < volume_threshold:
+                    continue
+
+                high = df['high']
+                low = df['low']
+                close = df['close']
+
+                tr = pd.concat([
+                    high - low,
+                    (high - close.shift()).abs(),
+                    (low - close.shift()).abs()
+                ], axis=1).max(axis=1)
+
+                atr = tr.rolling(window=5).mean().iloc[-1]
+                if pd.isna(atr):
+                    continue
+
+                ranking.append((symbol, atr, avg_volume))
+                time.sleep(0.5)  # rate-limit API calls
+
+            except Exception as e:
+                self.logger.warning(f"Data error for {symbol}: {e}")
                 continue
 
-            required_cols = ['volume', 'high', 'low', 'close']
-            missing_cols = [c for c in required_cols if c not in df.columns]
-            if missing_cols:
-                self.logger.warning(
-                    f"Data error for {symbol}: missing columns - {missing_cols}"
-                )
-                continue
-
-            df = df.dropna(subset=required_cols)
-            if df.empty:
-                continue
-
-            avg_volume = df['volume'].tail(5).mean()
-            self.logger.info(f"{symbol}: Recent avg volume = {avg_volume}")
-            if pd.isna(avg_volume) or avg_volume < volume_threshold:
-                continue
-
-            high = df['high']
-            low = df['low']
-            close = df['close']
-
-            tr = pd.concat([
-                high - low,
-                (high - close.shift()).abs(),
-                (low - close.shift()).abs()
-            ], axis=1).max(axis=1)
-
-            atr = tr.rolling(window=5).mean().iloc[-1]
-            if pd.isna(atr):
-                continue
-
-            ranking.append((symbol, atr, avg_volume))
-            time.sleep(0.5)  # rate-limit API calls
-
-        except Exception as e:
-            self.logger.warning(f"Data error for {symbol}: {e}")
-            continue
-
-    ranking.sort(key=lambda x: x[1], reverse=True)
-    top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
-    self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
-    return top_stocks
+        ranking.sort(key=lambda x: x[1], reverse=True)
+        top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
+        self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
+        return top_stocks
 
 
     
