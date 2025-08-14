@@ -86,38 +86,27 @@ class FreeAutoTradingBot:
 
         for symbol in stock_list:
             try:
-                df = yf.download(
-                    symbol,
-                    period='10d',
-                    interval='1d',
-                    progress=False,
-                    auto_adjust=False,
-                    threads=False
-                )
+                df = yf.download(symbol,
+                                period='10d',
+                                interval='1d',
+                                progress=False,
+                                auto_adjust=False,
+                                threads=False)
 
             # Flatten MultiIndex columns to single level if needed
                 if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = [
-                        "_".join([str(p) for p in col if p and str(p) != "None"]).strip()
-                        if isinstance(col, tuple) else str(col)
-                        for col in df.columns
-                    ]
-
-                # Normalize column names
-                df.columns = [str(c).strip().lower() for c in df.columns]
-
-                # Skip if empty
+                    df.columns = [col[0] for col in df.columns]
+                
                 if df.empty:
                     continue
 
-                required_cols = ['volume', 'high', 'low', 'close']
-                missing_cols = [c for c in required_cols if c not in df.columns]
-                if missing_cols:
+                required_cols = ['Volume', 'High', 'Low', 'Close']
+                if not all(col in df.columns for col in required_cols):
+                    missing_cols = list(set(required_cols) - set(df.columns))
                     self.logger.warning(
                         f"Data error for {symbol}: missing columns - {missing_cols}"
                     )
                     continue
-
                 df = df.dropna(subset=required_cols)
                 if df.empty:
                     continue
@@ -142,6 +131,7 @@ class FreeAutoTradingBot:
                     continue
 
                 ranking.append((symbol, atr, avg_volume))
+                import time
                 time.sleep(0.5)  # rate-limit API calls
 
             except Exception as e:
