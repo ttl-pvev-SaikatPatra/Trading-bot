@@ -100,7 +100,7 @@ class FreeAutoTradingBot:
                 if df.empty:
                     continue
 
-                required_cols = ['Volume', 'High', 'Low', 'Close']
+                required_cols = ['volume', 'high', 'low', 'close']
                 if not all(col in df.columns for col in required_cols):
                     missing_cols = list(set(required_cols) - set(df.columns))
                     self.logger.warning(
