@@ -114,7 +114,7 @@ class FreeAutoTradingBot:
        ]
        ranking = []
        for symbol in stock_list:
-           try:
+            try:
                df = yf.download(symbol,
                                 period='10d',
                                 interval='1d',
