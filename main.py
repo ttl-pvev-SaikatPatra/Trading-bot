@@ -102,11 +102,17 @@ class FreeAutoTradingBot:
                                 multi_level_index=False)
 
             # Flatten MultiIndex columns to single level if needed
+                # If your version doesn't support multi_level_index=False, flatten manually:
                 if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = [col[0] for col in df.columns]
+                    df.columns = df.columns.get_level_values(0)
 
+                # Normalize names
                 df.columns = [str(c).strip().lower() for c in df.columns]
-                
+
+                # Backfill close if only adj close exists
+                if 'close' not in df.columns and 'adj close' in df.columns:
+                    df['close'] = df['adj close']
+
                 if df.empty:
                     continue
 
