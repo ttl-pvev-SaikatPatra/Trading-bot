@@ -112,8 +112,8 @@ class FreeAutoTradingBot:
            'BANKBARODA.NS', 'POLYCAB.NS', 'DEEPAKNTR.NS', 'PIDILITIND.NS',
             'CUMMINSIND.NS', 'COFORGE.NS', 'NAUKRI.NS'
        ]
-       ranking = []
-       for symbol in stock_list:
+        ranking = []
+        for symbol in stock_list:
             try:
                df = yf.download(symbol,
                                 period='10d',
