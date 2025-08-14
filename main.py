@@ -14,6 +14,13 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import threading
 
+
+import yfinance as yf
+
+df = yf.download('RELIANCE.NS', period='30d', interval='1d', auto_adjust=False, progress=False)
+print(df.columns)
+print(df.head())
+
 # Your API credentials (stored securely in Replit secrets)
 API_KEY = os.environ.get('KITE_API_KEY')
 API_SECRET = os.environ.get('KITE_API_SECRET')
@@ -91,11 +98,14 @@ class FreeAutoTradingBot:
                                 interval='1d',
                                 progress=False,
                                 auto_adjust=False,
-                                threads=False)
+                                threads=False,
+                                multi_level_index=False)
 
             # Flatten MultiIndex columns to single level if needed
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = [col[0] for col in df.columns]
+
+                df.columns = [str(c).strip().lower() for c in df.columns]
                 
                 if df.empty:
                     continue
