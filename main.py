@@ -102,475 +102,475 @@ class FreeAutoTradingBot:
     # 'TATACOMM': 'TATACOMM.NS'
     # }
 
-    #def pick_top_stocks_by_volatility(self, volume_threshold=300000, top_n=15):
-     #   stock_list = [
-      #      'RELIANCE.NS', 'TCS.NS', 'ICICIBANK.NS', 'LT.NS', 'POLYCAB.NS',
-       #     'HDFCBANK.NS', 'ASIANPAINT.NS', 'BHARTIARTL.NS', 'TATAMOTORS.NS',
-        #    'ITC.NS', 'BAJFINANCE.NS', 'INFY.NS', 'AXISBANK.NS', 'MARUTI.NS',
-         #   'ADANIGREEN.NS', 'BHEL.NS', 'ADANIPORTS.NS', 'CANBK.NS',
-          #  'HAVELLS.NS', 'COALINDIA.NS', 'TATAELXSI.NS', 'RBLBANK.NS',
-           # 'BANKBARODA.NS', 'POLYCAB.NS', 'DEEPAKNTR.NS', 'PIDILITIND.NS',
-            #'CUMMINSIND.NS', 'COFORGE.NS', 'NAUKRI.NS'
-       # ]
-        #ranking = []
-       # for symbol in stock_list:
-        #    try:
-         #       df = yf.download(symbol,
-          #                       period='10d',
-           #                      interval='1d',
-            #                     progress=False,
-             #                    auto_adjust=False,
-              #                   threads=False)
+    def pick_top_stocks_by_volatility(self, volume_threshold=300000, top_n=15):
+       stock_list = [
+           'RELIANCE.NS', 'TCS.NS', 'ICICIBANK.NS', 'LT.NS', 'POLYCAB.NS',
+           'HDFCBANK.NS', 'ASIANPAINT.NS', 'BHARTIARTL.NS', 'TATAMOTORS.NS',
+           'ITC.NS', 'BAJFINANCE.NS', 'INFY.NS', 'AXISBANK.NS', 'MARUTI.NS',
+           'ADANIGREEN.NS', 'BHEL.NS', 'ADANIPORTS.NS', 'CANBK.NS',
+           'HAVELLS.NS', 'COALINDIA.NS', 'TATAELXSI.NS', 'RBLBANK.NS',
+           'BANKBARODA.NS', 'POLYCAB.NS', 'DEEPAKNTR.NS', 'PIDILITIND.NS',
+            'CUMMINSIND.NS', 'COFORGE.NS', 'NAUKRI.NS'
+       ]
+        ranking = []
+       for symbol in stock_list:
+           try:
+               df = yf.download(symbol,
+                                period='10d',
+                                interval='1d',
+                                progress=False,
+                                auto_adjust=False,
+                                threads=False)
 
-                # # Flatten MultiIndex columns to single level if needed
-                # if isinstance(df.columns, pd.MultiIndex):
-                #     df.columns = [col[0] for col in df.columns]
+                # Flatten MultiIndex columns to single level if needed
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = [col[0] for col in df.columns]
 
-                # if df.empty:
-                #     continue
-
-                # required_cols = ['Volume', 'High', 'Low', 'Close']
-                # if not all(col in df.columns for col in required_cols):
-                #     missing_cols = list(set(required_cols) - set(df.columns))
-                #     self.logger.warning(
-                #         f"Data error for {symbol}: missing columns - {missing_cols}"
-                #     )
-                #     continue
-
-                # df = df.dropna(subset=required_cols)
-                # if df.empty:
-                #     continue
-
-                # avg_volume = df['Volume'].tail(5).mean()
-                # self.logger.info(f"{symbol}: Recent avg volume = {avg_volume}")
-                # if pd.isna(avg_volume) or avg_volume < volume_threshold:
-                #     continue
-
-        #         high = df['High']
-        #         low = df['Low']
-        #         close = df['Close']
-
-        #         tr = pd.concat([
-        #             high - low, (high - close.shift()).abs(),
-        #             (low - close.shift()).abs()
-        #         ],
-        #                        axis=1).max(axis=1)
-
-        #         atr = tr.rolling(window=5).mean().iloc[-1]
-        #         if pd.isna(atr):
-        #             continue
-
-        #         ranking.append((symbol, atr, avg_volume))
-        #         import time
-        #         time.sleep(0.5)  # respect remote API
-
-        #     except Exception as e:
-        #         self.logger.warning(f"Data error for {symbol}: {e}")
-        #         continue
-
-        # ranking.sort(key=lambda x: x[1], reverse=True)
-        # top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
-        # self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
-        # return top_stocks
-    def get_todays_market_leaders(self):
-        """Get today's top gainers and losers using Yahoo Finance - FREE"""
-        try:
-            print("📊 Fetching today's market leaders from Yahoo Finance...")
-            
-            import yfinance as yf
-            import time
-            
-            # Get market data for top stocks (you can expand this list)
-            top_symbols = [
-                "RELIANCE", "TCS", "HDFCBANK", "INFY", "HINDUNILVR", "ICICIBANK", 
-                "BHARTIARTL", "KOTAKBANK", "LT", "ASIANPAINT", "MARUTI", "AXISBANK",
-                "WIPRO", "ULTRACEMCO", "NESTLEIND", "HCLTECH", "TITAN", "BAJFINANCE",
-                "SUNPHARMA", "ONGC", "NTPC", "POWERGRID", "COALINDIA", "TECHM",
-                "TATASTEEL", "INDUSINDBK", "ADANIPORTS", "GRASIM", "JSWSTEEL"
-            ]
-            
-            market_data = []
-            
-            for symbol in top_symbols:
-                try:
-                    # Add .NS suffix for Yahoo Finance NSE data
-                    yahoo_symbol = f"{stock['symbol']}.NS"
-                    ticker = yf.Ticker(yahoo_symbol)
-                    
-                    # Get 2 days of data to calculate change
-                    hist = ticker.history(period="2d")
-                    
-                    if len(hist) >= 2:
-                        current_price = float(hist['Close'][-1])
-                        prev_close = float(hist['Close'][-2])
-                        high = float(hist['High'][-1])
-                        low = float(hist['Low'][-1])
-                        volume = int(hist['Volume'][-1])
-                        
-                        # Calculate price change percentage
-                        price_change = ((current_price - prev_close) / prev_close) * 100
-                        
-                        market_data.append({
-                            "symbol": symbol,  # Original NSE symbol
-                            "price_change": round(price_change, 2),
-                            "volume": volume,
-                            "current_price": current_price,
-                            "prev_close": prev_close,
-                            "high": high,
-                            "low": low
-                        })
-                    
-                    # Small delay to avoid overwhelming Yahoo Finance
-                    time.sleep(0.1)
-                    
-                except Exception as e:
-                    print(f"Error fetching data for {symbol}: {e}")
+                if df.empty:
                     continue
-            
-            # Sort by price change
-            market_data.sort(key=lambda x: x['price_change'], reverse=True)
-            
-            # Split into gainers and losers
-            gainers = [stock for stock in market_data if stock['price_change'] > 0][:15]
-            losers = [stock for stock in market_data if stock['price_change'] < 0][-15:]  # Last 15 (most negative)
-            losers.reverse()  # Most negative first
-            
-            result = {
-                "top_gainers": gainers,
-                "top_losers": losers
-            }
-            
-            print(f"✅ Found {len(gainers)} gainers and {len(losers)} losers via Yahoo Finance")
-            return result
-            
-        except Exception as e:
-            print(f"❌ Error fetching market leaders from Yahoo Finance: {e}")
-            # Return fallback data
-            return {
-                "top_gainers": [
-                    {"symbol": "RELIANCE", "price_change": 2.5, "volume": 1000000, "high": 2850, "low": 2800, "current_price": 2845, "prev_close": 2775},
-                    {"symbol": "TCS", "price_change": 2.1, "volume": 800000, "high": 3650, "low": 3580, "current_price": 3645, "prev_close": 3570},
-                    {"symbol": "INFY", "price_change": 1.8, "volume": 700000, "high": 1485, "low": 1450, "current_price": 1480, "prev_close": 1454}
-                ],
-                "top_losers": [
-                    {"symbol": "HDFCBANK", "price_change": -1.5, "volume": 900000, "high": 1650, "low": 1610, "current_price": 1615, "prev_close": 1640},
-                    {"symbol": "ICICIBANK", "price_change": -1.2, "volume": 600000, "high": 1150, "low": 1120, "current_price": 1125, "prev_close": 1139},
-                    {"symbol": "AXISBANK", "price_change": -1.0, "volume": 500000, "high": 1095, "low": 1070, "current_price": 1075, "prev_close": 1086}
-                ]
-            }
-    
-    def identify_strong_sectors_today(self):
-        """Identify strong performing sectors using Yahoo Finance - FREE"""
-        try:
-            print("🏭 Analyzing sector performance via Yahoo Finance...")
-            
-            import yfinance as yf
-            import time
-            
-            # Define sector mappings
-            sector_stocks = {
-                "IT": ["TCS", "INFY", "WIPRO", "HCLTECH", "TECHM", "LTTS"],
-                "Banking": ["HDFCBANK", "ICICIBANK", "KOTAKBANK", "AXISBANK", "INDUSINDBK", "SBIN"],
-                "Auto": ["MARUTI", "TATAMOTORS", "M&M", "BAJAJ-AUTO", "EICHERMOT"],
-                "Pharma": ["SUNPHARMA", "DRREDDY", "CIPLA", "LUPIN", "BIOCON"],
-                "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA", "DABUR", "MARICO"],
-                "Metals": ["TATASTEEL", "JSWSTEEL", "HINDALCO", "VEDL", "JINDALSTEL"],
-                "Energy": ["RELIANCE", "ONGC", "BPCL", "IOC", "GAIL", "COALINDIA"],
-                "Cement": ["ULTRACEMCO", "SHREECEM", "ACC", "AMBUJACEMENT"],
-                "Telecom": ["BHARTIARTL", "IDEA"],
-                "Finance": ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE"]
-            }
-            
-            sector_performance = {}
-            
-            for sector, stocks in sector_stocks.items():
-                sector_data = []
-                total_change = 0
-                valid_stocks = 0
-                
-                for symbol in stocks:
-                    try:
-                        yahoo_symbol = f"{stock['symbol']}.NS"
-                        ticker = yf.Ticker(yahoo_symbol)
-                        hist = ticker.history(period="2d")
-                        
-                        if len(hist) >= 2:
-                            current_price = float(hist['Close'][-1])
-                            prev_close = float(hist['Close'][-2])
-                            volume = int(hist['Volume'][-1])
-                            
-                            # Calculate price change
-                            price_change = ((current_price - prev_close) / prev_close) * 100
-                            
-                            sector_data.append({
-                                "symbol": symbol,
-                                "change": round(price_change, 2),
-                                "volume": volume
-                            })
-                            
-                            total_change += price_change
-                            valid_stocks += 1
-                        
-                        # Small delay
-                        time.sleep(0.1)
-                            
-                    except Exception as e:
-                        continue
-                
-                if valid_stocks > 0:
-                    avg_change = total_change / valid_stocks
-                    
-                    # Sort stocks by performance within sector
-                    sector_data.sort(key=lambda x: x['change'], reverse=True)
-                    
-                    sector_performance[sector] = {
-                        "average_change": round(avg_change, 2),
-                        "strong_stocks": sector_data[:5],  # Top 5 stocks in sector
-                        "total_stocks": valid_stocks
-                    }
-            
-            # Sort sectors by average performance
-            sorted_sectors = dict(sorted(sector_performance.items(), 
-                                       key=lambda x: x[1]['average_change'], 
-                                       reverse=True))
-            
-            print(f"✅ Analyzed {len(sorted_sectors)} sectors via Yahoo Finance")
-            for sector, data in list(sorted_sectors.items())[:3]:
-                print(f"   {sector}: Avg {data['average_change']}% ({data['total_stocks']} stocks)")
-            
-            return sorted_sectors
-            
-        except Exception as e:
-            print(f"❌ Error analyzing sectors via Yahoo Finance: {e}")
-            # Return fallback data
-            return {
-                "IT": {
-                    "average_change": 1.5,
-                    "strong_stocks": [
-                        {"symbol": "TCS", "change": 2.1, "volume": 800000},
-                        {"symbol": "INFY", "change": 1.8, "volume": 700000}
-                    ],
-                    "total_stocks": 2
-                },
-                "Banking": {
-                    "average_change": 0.8,
-                    "strong_stocks": [
-                        {"symbol": "HDFCBANK", "change": 1.2, "volume": 900000},
-                        {"symbol": "KOTAKBANK", "change": 0.9, "volume": 650000}
-                    ],
-                    "total_stocks": 2
-                }
-            }
-    
-    def filter_by_liquidity_and_volume(self, candidates):
-        """Filter stocks by liquidity and volume using Yahoo Finance - RELAXED FILTERS"""
-        try:
-            print("💧 Applying liquidity and volume filters via Yahoo Finance...")
-            
-            import yfinance as yf
-            import time
-            
-            filtered_stocks = []
-            
-            for stock in candidates:
-                symbol = stock["symbol"]
-                
-                try:
-                    yahoo_symbol = f"{stock['symbol']}.NS"
-                    ticker = yf.Ticker(yahoo_symbol)
-                    
-                    # Get recent data for volume analysis
-                    hist = ticker.history(period="5d")
-                    
-                    if len(hist) >= 2:
-                        current_volume = int(hist['Volume'].iloc[-1])
-                        avg_volume = int(hist['Volume'].mean())
-                        current_price = float(hist['Close'].iloc[-1])
-                        high = float(hist['High'].iloc[-1])
-                        low = float(hist['Low'].iloc[-1])
-                        
-                        # Calculate volume ratio
-                        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.2
-                        
-                        # RELAXED FILTERS - More permissive
-                        min_volume = 50000      # Reduced from 100,000 to 50,000
-                        min_volume_ratio = 0.8  # Reduced from 1.2 to 0.8 (accept lower volume days)
-                        min_price = 5           # Reduced from 10 to 5
-                        max_price = 15000       # Increased from 10,000 to 15,000
-                        
-                        # Check all criteria (more lenient)
-                        if (current_volume >= min_volume and 
-                            volume_ratio >= min_volume_ratio and 
-                            min_price <= current_price <= max_price):
-                            
-                            # Add calculated fields to stock data
-                            enhanced_stock = stock.copy()
-                            enhanced_stock.update({
-                                "volume": current_volume,
-                                "volume_ratio": round(volume_ratio, 2),
-                                "current_price": current_price,
-                                "avg_volume": avg_volume
-                            })
-                            
-                            # Calculate range if missing
-                            if "range" not in enhanced_stock:
-                                range_pct = ((high - low) / low) * 100
-                                enhanced_stock["range"] = round(range_pct, 2)
-                            
-                            filtered_stocks.append(enhanced_stock)
-                    
-                    # Small delay
-                    time.sleep(0.1)
-                            
-                except Exception as e:
-                    print(f"Error processing {symbol}: {e}")
-                    # INCLUDE MORE STOCKS - Don't be too picky
-                    default_stock = stock.copy()
-                    default_stock.update({
-                        "volume": 150000,  # Default volume
-                        "volume_ratio": 1.3,  # Default ratio
-                        "range": abs(stock.get("price_change", 1)) * 1.2,
-                        "current_price": 500  # Default price
-                    })
-                    filtered_stocks.append(default_stock)
-                    continue
-            
-            # If still too few stocks, add fallback stocks
-            if len(filtered_stocks) < 6:
-                print(f"⚠️ Only {len(filtered_stocks)} stocks passed filters. Adding popular fallback stocks...")
-                
-                popular_fallback = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "WIPRO", "MARUTI", "TITAN", "BAJFINANCE"]
-                
-                for symbol in popular_fallback:
-                    if len(filtered_stocks) >= 8:
-                        break
-                        
-                    # Check if already in list
-                    if not any(stock["symbol"] == symbol for stock in filtered_stocks):
-                        filtered_stocks.append({
-                            "symbol": symbol,
-                            "price_change": 1.5,  # Default
-                            "range": 2.5,  # Default
-                            "volume": 200000,
-                            "volume_ratio": 1.4,
-                            "current_price": 1000  # Default
-                        })
-            
-            # Sort by volume ratio (higher liquidity first)
-            filtered_stocks.sort(key=lambda x: x.get("volume_ratio", 1), reverse=True)
-            
-            print(f"✅ Filtered to {len(filtered_stocks)} liquid stocks from {len(candidates)} candidates")
-            
-            return filtered_stocks[:12]  # Return maximum 12 stocks
-            
-        except Exception as e:
-            print(f"❌ Error in liquidity filtering: {e}")
-            # Return ALL candidates with default data if filtering completely fails
-            for stock in candidates:
-                if "volume_ratio" not in stock:
-                    stock["volume_ratio"] = 1.5
-                if "range" not in stock:
-                    stock["range"] = abs(stock.get("price_change", 1)) * 1.2
-            
-            return candidates  # Return all candidates
 
-    
-    def safe_yahoo_call(self, func, *args, **kwargs):
-        """Safely make Yahoo Finance calls with retry logic"""
-        import time
-        
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise e
-                print(f"Yahoo Finance call failed (attempt {attempt + 1}): {e}")
-                time.sleep(2)  # Wait 2 seconds before retry
-        return None
-    
-    def select_precise_stocks_for_trading(self):
-        """Final precise stock selection combining all factors"""
-    
-        print("🎯 Starting precise stock selection...")
-    
-        # Step 1: Get today's market leaders
-        market_leaders = self.get_todays_market_leaders()
-        all_candidates = (
-            market_leaders["top_gainers"][:8] + market_leaders["top_losers"][:8]
-        )
-    
-        # Step 2: Identify strong sectors
-        strong_sectors = self.identify_strong_sectors_today()
-    
-        # Step 3: Add sector leaders to candidates
-        for sector, data in list(strong_sectors.items())[:3]:  # Top 3 sectors
-            for stock in data["strong_stocks"][:2]:  # Top 2 stocks per sector
-                if stock["symbol"] not in [s["symbol"] for s in all_candidates]:
-                    all_candidates.append(
-                        {
-                            "symbol": stock["symbol"],
-                            "price_change": stock["change"],
-                            "range": abs(stock["change"]) * 1.2,  # Estimate
-                            "sector": sector,
-                        }
+                required_cols = ['Volume', 'High', 'Low', 'Close']
+                if not all(col in df.columns for col in required_cols):
+                    missing_cols = list(set(required_cols) - set(df.columns))
+                    self.logger.warning(
+                        f"Data error for {symbol}: missing columns - {missing_cols}"
                     )
+                    continue
+
+                df = df.dropna(subset=required_cols)
+                if df.empty:
+                    continue
+
+                avg_volume = df['Volume'].tail(5).mean()
+                self.logger.info(f"{symbol}: Recent avg volume = {avg_volume}")
+                if pd.isna(avg_volume) or avg_volume < volume_threshold:
+                    continue
+
+                high = df['High']
+                low = df['Low']
+                close = df['Close']
+
+                tr = pd.concat([
+                    high - low, (high - close.shift()).abs(),
+                    (low - close.shift()).abs()
+                ],
+                               axis=1).max(axis=1)
+
+                atr = tr.rolling(window=5).mean().iloc[-1]
+                if pd.isna(atr):
+                    continue
+
+                ranking.append((symbol, atr, avg_volume))
+                import time
+                time.sleep(0.5)  # respect remote API
+
+            except Exception as e:
+                self.logger.warning(f"Data error for {symbol}: {e}")
+                continue
+
+        ranking.sort(key=lambda x: x[1], reverse=True)
+        top_stocks = [x[0].replace('.NS', '') for x in ranking[:top_n]]
+        self.logger.info(f"Today's Top {top_n} Volatile Stocks: {top_stocks}")
+        return top_stocks
+    # def get_todays_market_leaders(self):
+    #     """Get today's top gainers and losers using Yahoo Finance - FREE"""
+    #     try:
+    #         print("📊 Fetching today's market leaders from Yahoo Finance...")
+            
+    #         import yfinance as yf
+    #         import time
+            
+    #         # Get market data for top stocks (you can expand this list)
+    #         top_symbols = [
+    #             "RELIANCE", "TCS", "HDFCBANK", "INFY", "HINDUNILVR", "ICICIBANK", 
+    #             "BHARTIARTL", "KOTAKBANK", "LT", "ASIANPAINT", "MARUTI", "AXISBANK",
+    #             "WIPRO", "ULTRACEMCO", "NESTLEIND", "HCLTECH", "TITAN", "BAJFINANCE",
+    #             "SUNPHARMA", "ONGC", "NTPC", "POWERGRID", "COALINDIA", "TECHM",
+    #             "TATASTEEL", "INDUSINDBK", "ADANIPORTS", "GRASIM", "JSWSTEEL"
+    #         ]
+            
+    #         market_data = []
+            
+    #         for symbol in top_symbols:
+    #             try:
+    #                 # Add .NS suffix for Yahoo Finance NSE data
+    #                 yahoo_symbol = f"{stock['symbol']}.NS"
+    #                 ticker = yf.Ticker(yahoo_symbol)
+                    
+    #                 # Get 2 days of data to calculate change
+    #                 hist = ticker.history(period="2d")
+                    
+    #                 if len(hist) >= 2:
+    #                     current_price = float(hist['Close'][-1])
+    #                     prev_close = float(hist['Close'][-2])
+    #                     high = float(hist['High'][-1])
+    #                     low = float(hist['Low'][-1])
+    #                     volume = int(hist['Volume'][-1])
+                        
+    #                     # Calculate price change percentage
+    #                     price_change = ((current_price - prev_close) / prev_close) * 100
+                        
+    #                     market_data.append({
+    #                         "symbol": symbol,  # Original NSE symbol
+    #                         "price_change": round(price_change, 2),
+    #                         "volume": volume,
+    #                         "current_price": current_price,
+    #                         "prev_close": prev_close,
+    #                         "high": high,
+    #                         "low": low
+    #                     })
+                    
+    #                 # Small delay to avoid overwhelming Yahoo Finance
+    #                 time.sleep(0.1)
+                    
+    #             except Exception as e:
+    #                 print(f"Error fetching data for {symbol}: {e}")
+    #                 continue
+            
+    #         # Sort by price change
+    #         market_data.sort(key=lambda x: x['price_change'], reverse=True)
+            
+    #         # Split into gainers and losers
+    #         gainers = [stock for stock in market_data if stock['price_change'] > 0][:15]
+    #         losers = [stock for stock in market_data if stock['price_change'] < 0][-15:]  # Last 15 (most negative)
+    #         losers.reverse()  # Most negative first
+            
+    #         result = {
+    #             "top_gainers": gainers,
+    #             "top_losers": losers
+    #         }
+            
+    #         print(f"✅ Found {len(gainers)} gainers and {len(losers)} losers via Yahoo Finance")
+    #         return result
+            
+    #     except Exception as e:
+    #         print(f"❌ Error fetching market leaders from Yahoo Finance: {e}")
+    #         # Return fallback data
+    #         return {
+    #             "top_gainers": [
+    #                 {"symbol": "RELIANCE", "price_change": 2.5, "volume": 1000000, "high": 2850, "low": 2800, "current_price": 2845, "prev_close": 2775},
+    #                 {"symbol": "TCS", "price_change": 2.1, "volume": 800000, "high": 3650, "low": 3580, "current_price": 3645, "prev_close": 3570},
+    #                 {"symbol": "INFY", "price_change": 1.8, "volume": 700000, "high": 1485, "low": 1450, "current_price": 1480, "prev_close": 1454}
+    #             ],
+    #             "top_losers": [
+    #                 {"symbol": "HDFCBANK", "price_change": -1.5, "volume": 900000, "high": 1650, "low": 1610, "current_price": 1615, "prev_close": 1640},
+    #                 {"symbol": "ICICIBANK", "price_change": -1.2, "volume": 600000, "high": 1150, "low": 1120, "current_price": 1125, "prev_close": 1139},
+    #                 {"symbol": "AXISBANK", "price_change": -1.0, "volume": 500000, "high": 1095, "low": 1070, "current_price": 1075, "prev_close": 1086}
+    #             ]
+    #         }
     
-        # Step 4: Apply liquidity filter
-        liquid_stocks = self.filter_by_liquidity_and_volume(all_candidates)
+    # def identify_strong_sectors_today(self):
+    #     """Identify strong performing sectors using Yahoo Finance - FREE"""
+    #     try:
+    #         print("🏭 Analyzing sector performance via Yahoo Finance...")
+            
+    #         import yfinance as yf
+    #         import time
+            
+    #         # Define sector mappings
+    #         sector_stocks = {
+    #             "IT": ["TCS", "INFY", "WIPRO", "HCLTECH", "TECHM", "LTTS"],
+    #             "Banking": ["HDFCBANK", "ICICIBANK", "KOTAKBANK", "AXISBANK", "INDUSINDBK", "SBIN"],
+    #             "Auto": ["MARUTI", "TATAMOTORS", "M&M", "BAJAJ-AUTO", "EICHERMOT"],
+    #             "Pharma": ["SUNPHARMA", "DRREDDY", "CIPLA", "LUPIN", "BIOCON"],
+    #             "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA", "DABUR", "MARICO"],
+    #             "Metals": ["TATASTEEL", "JSWSTEEL", "HINDALCO", "VEDL", "JINDALSTEL"],
+    #             "Energy": ["RELIANCE", "ONGC", "BPCL", "IOC", "GAIL", "COALINDIA"],
+    #             "Cement": ["ULTRACEMCO", "SHREECEM", "ACC", "AMBUJACEMENT"],
+    #             "Telecom": ["BHARTIARTL", "IDEA"],
+    #             "Finance": ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE"]
+    #         }
+            
+    #         sector_performance = {}
+            
+    #         for sector, stocks in sector_stocks.items():
+    #             sector_data = []
+    #             total_change = 0
+    #             valid_stocks = 0
+                
+    #             for symbol in stocks:
+    #                 try:
+    #                     yahoo_symbol = f"{stock['symbol']}.NS"
+    #                     ticker = yf.Ticker(yahoo_symbol)
+    #                     hist = ticker.history(period="2d")
+                        
+    #                     if len(hist) >= 2:
+    #                         current_price = float(hist['Close'][-1])
+    #                         prev_close = float(hist['Close'][-2])
+    #                         volume = int(hist['Volume'][-1])
+                            
+    #                         # Calculate price change
+    #                         price_change = ((current_price - prev_close) / prev_close) * 100
+                            
+    #                         sector_data.append({
+    #                             "symbol": symbol,
+    #                             "change": round(price_change, 2),
+    #                             "volume": volume
+    #                         })
+                            
+    #                         total_change += price_change
+    #                         valid_stocks += 1
+                        
+    #                     # Small delay
+    #                     time.sleep(0.1)
+                            
+    #                 except Exception as e:
+    #                     continue
+                
+    #             if valid_stocks > 0:
+    #                 avg_change = total_change / valid_stocks
+                    
+    #                 # Sort stocks by performance within sector
+    #                 sector_data.sort(key=lambda x: x['change'], reverse=True)
+                    
+    #                 sector_performance[sector] = {
+    #                     "average_change": round(avg_change, 2),
+    #                     "strong_stocks": sector_data[:5],  # Top 5 stocks in sector
+    #                     "total_stocks": valid_stocks
+    #                 }
+            
+    #         # Sort sectors by average performance
+    #         sorted_sectors = dict(sorted(sector_performance.items(), 
+    #                                    key=lambda x: x[1]['average_change'], 
+    #                                    reverse=True))
+            
+    #         print(f"✅ Analyzed {len(sorted_sectors)} sectors via Yahoo Finance")
+    #         for sector, data in list(sorted_sectors.items())[:3]:
+    #             print(f"   {sector}: Avg {data['average_change']}% ({data['total_stocks']} stocks)")
+            
+    #         return sorted_sectors
+            
+    #     except Exception as e:
+    #         print(f"❌ Error analyzing sectors via Yahoo Finance: {e}")
+    #         # Return fallback data
+    #         return {
+    #             "IT": {
+    #                 "average_change": 1.5,
+    #                 "strong_stocks": [
+    #                     {"symbol": "TCS", "change": 2.1, "volume": 800000},
+    #                     {"symbol": "INFY", "change": 1.8, "volume": 700000}
+    #                 ],
+    #                 "total_stocks": 2
+    #             },
+    #             "Banking": {
+    #                 "average_change": 0.8,
+    #                 "strong_stocks": [
+    #                     {"symbol": "HDFCBANK", "change": 1.2, "volume": 900000},
+    #                     {"symbol": "KOTAKBANK", "change": 0.9, "volume": 650000}
+    #                 ],
+    #                 "total_stocks": 2
+    #             }
+    #         }
     
-        # Step 5: Final scoring and selection
-        final_selection = []
+    # def filter_by_liquidity_and_volume(self, candidates):
+    #     """Filter stocks by liquidity and volume using Yahoo Finance - RELAXED FILTERS"""
+    #     try:
+    #         print("💧 Applying liquidity and volume filters via Yahoo Finance...")
+            
+    #         import yfinance as yf
+    #         import time
+            
+    #         filtered_stocks = []
+            
+    #         for stock in candidates:
+    #             symbol = stock["symbol"]
+                
+    #             try:
+    #                 yahoo_symbol = f"{stock['symbol']}.NS"
+    #                 ticker = yf.Ticker(yahoo_symbol)
+                    
+    #                 # Get recent data for volume analysis
+    #                 hist = ticker.history(period="5d")
+                    
+    #                 if len(hist) >= 2:
+    #                     current_volume = int(hist['Volume'].iloc[-1])
+    #                     avg_volume = int(hist['Volume'].mean())
+    #                     current_price = float(hist['Close'].iloc[-1])
+    #                     high = float(hist['High'].iloc[-1])
+    #                     low = float(hist['Low'].iloc[-1])
+                        
+    #                     # Calculate volume ratio
+    #                     volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.2
+                        
+    #                     # RELAXED FILTERS - More permissive
+    #                     min_volume = 50000      # Reduced from 100,000 to 50,000
+    #                     min_volume_ratio = 0.8  # Reduced from 1.2 to 0.8 (accept lower volume days)
+    #                     min_price = 5           # Reduced from 10 to 5
+    #                     max_price = 15000       # Increased from 10,000 to 15,000
+                        
+    #                     # Check all criteria (more lenient)
+    #                     if (current_volume >= min_volume and 
+    #                         volume_ratio >= min_volume_ratio and 
+    #                         min_price <= current_price <= max_price):
+                            
+    #                         # Add calculated fields to stock data
+    #                         enhanced_stock = stock.copy()
+    #                         enhanced_stock.update({
+    #                             "volume": current_volume,
+    #                             "volume_ratio": round(volume_ratio, 2),
+    #                             "current_price": current_price,
+    #                             "avg_volume": avg_volume
+    #                         })
+                            
+    #                         # Calculate range if missing
+    #                         if "range" not in enhanced_stock:
+    #                             range_pct = ((high - low) / low) * 100
+    #                             enhanced_stock["range"] = round(range_pct, 2)
+                            
+    #                         filtered_stocks.append(enhanced_stock)
+                    
+    #                 # Small delay
+    #                 time.sleep(0.1)
+                            
+    #             except Exception as e:
+    #                 print(f"Error processing {symbol}: {e}")
+    #                 # INCLUDE MORE STOCKS - Don't be too picky
+    #                 default_stock = stock.copy()
+    #                 default_stock.update({
+    #                     "volume": 150000,  # Default volume
+    #                     "volume_ratio": 1.3,  # Default ratio
+    #                     "range": abs(stock.get("price_change", 1)) * 1.2,
+    #                     "current_price": 500  # Default price
+    #                 })
+    #                 filtered_stocks.append(default_stock)
+    #                 continue
+            
+    #         # If still too few stocks, add fallback stocks
+    #         if len(filtered_stocks) < 6:
+    #             print(f"⚠️ Only {len(filtered_stocks)} stocks passed filters. Adding popular fallback stocks...")
+                
+    #             popular_fallback = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "WIPRO", "MARUTI", "TITAN", "BAJFINANCE"]
+                
+    #             for symbol in popular_fallback:
+    #                 if len(filtered_stocks) >= 8:
+    #                     break
+                        
+    #                 # Check if already in list
+    #                 if not any(stock["symbol"] == symbol for stock in filtered_stocks):
+    #                     filtered_stocks.append({
+    #                         "symbol": symbol,
+    #                         "price_change": 1.5,  # Default
+    #                         "range": 2.5,  # Default
+    #                         "volume": 200000,
+    #                         "volume_ratio": 1.4,
+    #                         "current_price": 1000  # Default
+    #                     })
+            
+    #         # Sort by volume ratio (higher liquidity first)
+    #         filtered_stocks.sort(key=lambda x: x.get("volume_ratio", 1), reverse=True)
+            
+    #         print(f"✅ Filtered to {len(filtered_stocks)} liquid stocks from {len(candidates)} candidates")
+            
+    #         return filtered_stocks[:12]  # Return maximum 12 stocks
+            
+    #     except Exception as e:
+    #         print(f"❌ Error in liquidity filtering: {e}")
+    #         # Return ALL candidates with default data if filtering completely fails
+    #         for stock in candidates:
+    #             if "volume_ratio" not in stock:
+    #                 stock["volume_ratio"] = 1.5
+    #             if "range" not in stock:
+    #                 stock["range"] = abs(stock.get("price_change", 1)) * 1.2
+            
+    #         return candidates  # Return all candidates
+
     
-        for stock in liquid_stocks[:15]:  # Top 15 after filtering
-            symbol = stock["symbol"]
+    # def safe_yahoo_call(self, func, *args, **kwargs):
+    #     """Safely make Yahoo Finance calls with retry logic"""
+    #     import time
+        
+    #     max_retries = 3
+    #     for attempt in range(max_retries):
+    #         try:
+    #             return func(*args, **kwargs)
+    #         except Exception as e:
+    #             if attempt == max_retries - 1:
+    #                 raise e
+    #             print(f"Yahoo Finance call failed (attempt {attempt + 1}): {e}")
+    #             time.sleep(2)  # Wait 2 seconds before retry
+    #     return None
     
-            # Calculate composite score
-            movement_score = abs(stock["price_change"]) * 0.3
-            range_score = stock["range"] * 0.4
-            volume_score = min(stock.get("volume_ratio", 1), 3) * 0.3
+    # def select_precise_stocks_for_trading(self):
+    #     """Final precise stock selection combining all factors"""
     
-            composite_score = movement_score + range_score + volume_score
+    #     print("🎯 Starting precise stock selection...")
     
-            # Set dynamic targets based on actual movement
-            if stock["range"] > 3.0:
-                target = min(stock["range"] * 0.4, 2.0)
-                stop = target * 0.5
-            elif stock["range"] > 2.0:
-                target = min(stock["range"] * 0.5, 1.5)
-                stop = target * 0.5
-            else:
-                target = min(stock["range"] * 0.6, 1.0)
-                stop = target * 0.5
+    #     # Step 1: Get today's market leaders
+    #     market_leaders = self.get_todays_market_leaders()
+    #     all_candidates = (
+    #         market_leaders["top_gainers"][:8] + market_leaders["top_losers"][:8]
+    #     )
     
-            final_selection.append(
-                {
-                    "symbol": symbol,
-                    "score": composite_score,
-                    "target_profit": round(target, 2),
-                    "stop_loss": round(stop, 2),
-                    "movement_today": stock["price_change"],
-                    "range_today": stock["range"],
-                    "selection_reason": "market_leader"
-                    if stock
-                    in market_leaders["top_gainers"][:5] + market_leaders["top_losers"][:5]
-                    else "sector_strength",
-                }
-            )
+    #     # Step 2: Identify strong sectors
+    #     strong_sectors = self.identify_strong_sectors_today()
     
-        # Sort by composite score and return top 8-10
-        final_selection.sort(key=lambda x: x["score"], reverse=True)
+    #     # Step 3: Add sector leaders to candidates
+    #     for sector, data in list(strong_sectors.items())[:3]:  # Top 3 sectors
+    #         for stock in data["strong_stocks"][:2]:  # Top 2 stocks per sector
+    #             if stock["symbol"] not in [s["symbol"] for s in all_candidates]:
+    #                 all_candidates.append(
+    #                     {
+    #                         "symbol": stock["symbol"],
+    #                         "price_change": stock["change"],
+    #                         "range": abs(stock["change"]) * 1.2,  # Estimate
+    #                         "sector": sector,
+    #                     }
+    #                 )
     
-        selected_stocks = final_selection[:8]
+    #     # Step 4: Apply liquidity filter
+    #     liquid_stocks = self.filter_by_liquidity_and_volume(all_candidates)
     
-        print(f"✅ Selected {len(selected_stocks)} stocks for trading:")
-        for stock in selected_stocks:
-            print(
-                f"   {stock['symbol']}: Target {stock['target_profit']}%, Stop {stock['stop_loss']}% | Reason: {stock['selection_reason']}"
-            )
+    #     # Step 5: Final scoring and selection
+    #     final_selection = []
     
-        return selected_stocks
+    #     for stock in liquid_stocks[:15]:  # Top 15 after filtering
+    #         symbol = stock["symbol"]
+    
+    #         # Calculate composite score
+    #         movement_score = abs(stock["price_change"]) * 0.3
+    #         range_score = stock["range"] * 0.4
+    #         volume_score = min(stock.get("volume_ratio", 1), 3) * 0.3
+    
+    #         composite_score = movement_score + range_score + volume_score
+    
+    #         # Set dynamic targets based on actual movement
+    #         if stock["range"] > 3.0:
+    #             target = min(stock["range"] * 0.4, 2.0)
+    #             stop = target * 0.5
+    #         elif stock["range"] > 2.0:
+    #             target = min(stock["range"] * 0.5, 1.5)
+    #             stop = target * 0.5
+    #         else:
+    #             target = min(stock["range"] * 0.6, 1.0)
+    #             stop = target * 0.5
+    
+    #         final_selection.append(
+    #             {
+    #                 "symbol": symbol,
+    #                 "score": composite_score,
+    #                 "target_profit": round(target, 2),
+    #                 "stop_loss": round(stop, 2),
+    #                 "movement_today": stock["price_change"],
+    #                 "range_today": stock["range"],
+    #                 "selection_reason": "market_leader"
+    #                 if stock
+    #                 in market_leaders["top_gainers"][:5] + market_leaders["top_losers"][:5]
+    #                 else "sector_strength",
+    #             }
+    #         )
+    
+    #     # Sort by composite score and return top 8-10
+    #     final_selection.sort(key=lambda x: x["score"], reverse=True)
+    
+    #     selected_stocks = final_selection[:8]
+    
+    #     print(f"✅ Selected {len(selected_stocks)} stocks for trading:")
+    #     for stock in selected_stocks:
+    #         print(
+    #             f"   {stock['symbol']}: Target {stock['target_profit']}%, Stop {stock['stop_loss']}% | Reason: {stock['selection_reason']}"
+    #         )
+    
+    #     return selected_stocks
 
 
 
@@ -632,7 +632,7 @@ class FreeAutoTradingBot:
                 self.logger.info(
                     "⏳ Updating daily stock list using precise selection algorithm..."
                 )
-                self.daily_stock_list = self.select_precise_stocks_for_trading()
+                self.daily_stock_list = self.pick_top_stocks_by_volatility()
                 self._last_cache_update = self.get_ist_time()
                 self.logger.info(
                     f"✅ Daily stock list updated at {self._last_cache_update.strftime('%H:%M:%S IST')}"
