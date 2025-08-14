@@ -124,55 +124,55 @@ class FreeAutoTradingBot:
 
                 # Flatten MultiIndex columns to single level if needed
                 # Flatten MultiIndex columns to single level if needed
-            if isinstance(df.columns, pd.MultiIndex):
-                # If columns are tuples, join non-empty parts; else keep as string
-                df.columns = [
-                    "_".join([str(p) for p in col if str(p) and str(p) != "None"])
-                    if isinstance(col, tuple) else str(col)
-                for col in df.columns]
+                if isinstance(df.columns, pd.MultiIndex):
+                    # If columns are tuples, join non-empty parts; else keep as string
+                    df.columns = [
+                        "_".join([str(p) for p in col if str(p) and str(p) != "None"])
+                        if isinstance(col, tuple) else str(col)
+                    for col in df.columns]
 
-            # Normalize column names to lowercase to match indicator functions
-            df.columns = [str(c).strip().lower() for c in df.columns]
+                # Normalize column names to lowercase to match indicator functions
+                df.columns = [str(c).strip().lower() for c in df.columns]
 
-            # Skip if empty after cleaning
-            if df.empty:
-                continue
-
-            required_cols = ['volume', 'high', 'low', 'close']
-            missing_cols = [c for c in required_cols if c not in df.columns]
-            if missing_cols:
-                self.logger.warning(
-                    f"Data error for {symbol}: missing columns - {missing_cols}"
-                )
-                continue
-
-
-                df = df.dropna(subset=required_cols)
+                # Skip if empty after cleaning
                 if df.empty:
                     continue
 
-                avg_volume = df['Volume'].tail(5).mean()
-                self.logger.info(f"{symbol}: Recent avg volume = {avg_volume}")
-                if pd.isna(avg_volume) or avg_volume < volume_threshold:
+                required_cols = ['volume', 'high', 'low', 'close']
+                missing_cols = [c for c in required_cols if c not in df.columns]
+                if missing_cols:
+                    self.logger.warning(
+                        f"Data error for {symbol}: missing columns - {missing_cols}"
+                    )
                     continue
 
-                high = df['High']
-                low = df['Low']
-                close = df['Close']
 
-                tr = pd.concat([
-                    high - low, (high - close.shift()).abs(),
-                    (low - close.shift()).abs()
-                ],
-                               axis=1).max(axis=1)
+                    df = df.dropna(subset=required_cols)
+                    if df.empty:
+                        continue
 
-                atr = tr.rolling(window=5).mean().iloc[-1]
-                if pd.isna(atr):
-                    continue
+                    avg_volume = df['Volume'].tail(5).mean()
+                    self.logger.info(f"{symbol}: Recent avg volume = {avg_volume}")
+                    if pd.isna(avg_volume) or avg_volume < volume_threshold:
+                        continue
 
-                ranking.append((symbol, atr, avg_volume))
-                import time
-                time.sleep(0.5)  # respect remote API
+                    high = df['High']
+                    low = df['Low']
+                    close = df['Close']
+
+                    tr = pd.concat([
+                        high - low, (high - close.shift()).abs(),
+                        (low - close.shift()).abs()
+                    ],
+                                axis=1).max(axis=1)
+
+                    atr = tr.rolling(window=5).mean().iloc[-1]
+                    if pd.isna(atr):
+                        continue
+
+                    ranking.append((symbol, atr, avg_volume))
+                    import time
+                    time.sleep(0.5)  # respect remote API
 
             except Exception as e:
                 self.logger.warning(f"Data error for {symbol}: {e}")
