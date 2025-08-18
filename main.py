@@ -183,7 +183,7 @@ class FreeAutoTradingBot:
     #         for symbol in top_symbols:
     #             try:
     #                 # Add .NS suffix for Yahoo Finance NSE data
-    #                 yahoo_symbol = f"{stock['symbol']}.NS"
+    #                 yahoo_symbol = f"{symbol}.NS"
     #                 ticker = yf.Ticker(yahoo_symbol)
                     
     #                 # Get 2 days of data to calculate change
@@ -279,7 +279,7 @@ class FreeAutoTradingBot:
                 
     #             for symbol in stocks:
     #                 try:
-    #                     yahoo_symbol = f"{stock['symbol']}.NS"
+    #                     yahoo_symbol = f"{symbol}.NS"
     #                     ticker = yf.Ticker(yahoo_symbol)
     #                     hist = ticker.history(period="2d")
                         
@@ -365,7 +365,7 @@ class FreeAutoTradingBot:
     #             symbol = stock["symbol"]
                 
     #             try:
-    #                 yahoo_symbol = f"{stock['symbol']}.NS"
+    #                 yahoo_symbol = f"{symbol}.NS"
     #                 ticker = yf.Ticker(yahoo_symbol)
                     
     #                 # Get recent data for volume analysis
@@ -831,10 +831,10 @@ class FreeAutoTradingBot:
         Return pandas DataFrame with ['Open','High','Low','Close','Volume'] columns.
         """
         try:
-            yf_symbol = f"{stock['symbol']}.NS"
-            stock = yf.Ticker(yf_symbol)
+            yf_symbol = f"{symbol}.NS"
+            ticker = yf.Ticker(yf_symbol)
             period_str = f"{days}d"
-            df = stock.history(period=period_str, interval=interval)
+            df = ticker.history(period=period_str, interval=interval)
             if df.empty:
                 self.logger.warning(
                     f"No historical data for {symbol} at {interval}")
@@ -857,9 +857,9 @@ class FreeAutoTradingBot:
     def get_stock_price_external(self, symbol):
         """Get current stock price using yfinance"""
         try:
-            yf_symbol = f"{stock['symbol']}.NS"
-            stock = yf.Ticker(yf_symbol)
-            hist = stock.history(period="1d", interval="1m")
+            yf_symbol = f"{symbol}.NS"
+            ticker = yf.Ticker(yf_symbol)
+            hist = ticker.history(period=period_str, interval=interval)
             if not hist.empty:
                 price = hist['Close'].iloc[-1]
                 self.logger.info(f"📊 {symbol} price from Yahoo: ₹{price:.2f}")
