@@ -1861,6 +1861,8 @@ if __name__ == "__main__":
 
     monitor_thread = threading.Thread(target=rapid_monitor, daemon=True)
     monitor_thread.start()
+
+    start_keep_alive_thread(interval_seconds=180)
     
     # Start scheduling thread (will only run when bot_instance exists)
     def run_scheduled_tasks():
