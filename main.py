@@ -1502,6 +1502,11 @@ signal.signal(signal.SIGTERM, _shutdown)
 
 # === Flask Routes ===
 
+@app.get("/health")
+def health():
+    # Keep it very fast and simple: no DB calls if possible
+    return jsonify(status="ok")
+
 @app.route('/set-token', methods=['POST'])
 def set_token_api():
     global bot_instance
@@ -1862,7 +1867,7 @@ if __name__ == "__main__":
     monitor_thread = threading.Thread(target=rapid_monitor, daemon=True)
     monitor_thread.start()
 
-    start_keep_alive_thread(interval_seconds=180)
+    start_keep_alive_thread(interval_seconds=120)
     
     # Start scheduling thread (will only run when bot_instance exists)
     def run_scheduled_tasks():
