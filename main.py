@@ -1502,10 +1502,6 @@ signal.signal(signal.SIGTERM, _shutdown)
 
 # === Flask Routes ===
 
-@app.get("/health")
-def health():
-    # Keep it very fast and simple: no DB calls if possible
-    return jsonify(status="ok")
 
 @app.route('/set-token', methods=['POST'])
 def set_token_api():
