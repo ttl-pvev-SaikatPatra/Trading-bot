@@ -13,6 +13,8 @@ import pytz
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import threading
+import signal
+from requests.adapters import HTTPAdapter, Retry
 
 
 import yfinance as yf
@@ -1417,20 +1419,85 @@ class FreeAutoTradingBot:
 
 
 # === Keep-alive Thread for Replit ===
-def keep_alive_ping():
-    while True:
+STOP_EVENT = threading.Event()
+
+def _make_session():
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"]
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+def keep_alive_ping(
+    interval_seconds=300,           # 5 minutes; adjust to 60–300s depending on your needs
+    timeout_seconds=5,
+    url_env_var="RENDER_PUBLIC_URL" # set this in Render Dashboard → Environment
+):
+    """
+    Periodically pings the /health endpoint on a Render Web Service to reduce cold starts.
+    Requires environment variable RENDER_PUBLIC_URL like 'https://your-app.onrender.com'
+    """
+    session = _make_session()
+    base_url = os.environ.get(url_env_var)
+    if not base_url:
+        print(f"⚠️ {url_env_var} not set; keep-alive ping disabled.")
+        return
+
+    # Ensure no trailing slash
+    base_url = base_url.rstrip("/")
+    health_url = f"{base_url}/health"
+
+    print(f"🔄 Keep-alive ping started: {health_url} every {interval_seconds}s")
+
+    # Exponential backoff on consecutive failures (bounded)
+    backoff = interval_seconds
+    min_interval = min(60, interval_seconds)  # don’t spam below 60s
+    max_interval = max(interval_seconds * 4, interval_seconds)
+
+    while not STOP_EVENT.is_set():
         try:
-            time.sleep(300)  # 5 minutes
-            replit_url = os.environ.get('REPL_URL', 'http://localhost:5000')
-            response = requests.get(f"{replit_url}/health", timeout=10)
-            if response.status_code == 200:
-                print(
-                    f"✅ Keep-alive ping successful at {datetime.now().strftime('%H:%M:%S')}"
-                )
+            time.sleep(interval_seconds)
+            resp = session.get(health_url, timeout=timeout_seconds)
+            if resp.status_code == 200:
+                print(f"✅ Keep-alive OK at {datetime.now().strftime('%H:%M:%S')}")
+                # Reset interval after success
+                interval_seconds = max(min_interval, interval_seconds // 2) if interval_seconds > min_interval else min_interval
             else:
-                print(f"⚠️ Keep-alive ping failed: {response.status_code}")
+                print(f"⚠️ Keep-alive failed: {resp.status_code}")
+                interval_seconds = min(max_interval, max(min_interval, int(backoff * 1.5)))
         except Exception as e:
-            print(f"⚠️ Keep-alive ping error: {e}")
+            print(f"⚠️ Keep-alive error: {e}")
+            interval_seconds = min(max_interval, max(min_interval, int(backoff * 1.5)))
+
+def start_keep_alive_thread(
+    interval_seconds=300,
+    timeout_seconds=5,
+    url_env_var="RENDER_PUBLIC_URL"
+):
+    t = threading.Thread(
+        target=keep_alive_ping,
+        kwargs=dict(
+            interval_seconds=interval_seconds,
+            timeout_seconds=timeout_seconds,
+            url_env_var=url_env_var
+        ),
+        daemon=True
+    )
+    t.start()
+    return t
+
+def _shutdown(*_):
+    STOP_EVENT.set()
+
+# Register signal handlers so Render’s SIGTERM shuts us down cleanly
+signal.signal(signal.SIGINT, _shutdown)
+signal.signal(signal.SIGTERM, _shutdown)
 
 
 # === Flask Routes ===
