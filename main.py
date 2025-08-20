@@ -1852,33 +1852,48 @@ if __name__ == "__main__":
 
     # Only start monitoring thread - no heavy operations
     def rapid_monitor():
-        while True:
-            try:
-                if bot_instance and hasattr(bot_instance, 'positions') and bot_instance.positions:
-                    bot_instance.monitor_positions()
-            except Exception as e:
-                print(f"[Monitor Thread Error]: {e}")
-            time.sleep(20)
+    """Monitor positions every 20 seconds"""
+    print("🟢 Rapid monitor thread started")
+    while True:
+        try:
+            if bot_instance and hasattr(bot_instance, 'positions') and bot_instance.positions:
+                bot_instance.monitor_positions()
+        except Exception as e:
+            print(f"[Monitor Thread Error]: {e}")
+        time.sleep(20)
 
-    monitor_thread = threading.Thread(target=rapid_monitor, daemon=True)
-    monitor_thread.start()
+    def scan_stocks():
+        """Scan for trade opportunities"""
+        print("🔍 Scanner job triggered")
+        try:
+            if bot_instance and bot_instance.access_token:
+                bot_instance.scan_for_trades()
+        except Exception as e:
+            print(f"[Scanner Error]: {e}")
 
-    start_keep_alive_thread(interval_seconds=120)
-    
-    # Start scheduling thread (will only run when bot_instance exists)
     def run_scheduled_tasks():
+        """Background scheduler loop"""
+        print("🟢 Scheduler thread started")
         while True:
             try:
                 if bot_instance and hasattr(bot_instance, 'access_token') and bot_instance.access_token:
                     schedule.run_pending()
             except Exception as e:
                 print(f"[Scheduled Task Error]: {e}")
-            time.sleep(30)
+            time.sleep(10)
+
+    schedule.every(15).minutes.do(scan_stocks)
+
+    monitor_thread = threading.Thread(target=rapid_monitor, daemon=True)
+    monitor_thread.start()
+
+    start_keep_alive_thread(interval_seconds=120)
+    
 
     schedule_thread = threading.Thread(target=run_scheduled_tasks, daemon=True)
     schedule_thread.start()
 
-    print("✅ Background monitoring threads started")
+    print("✅ Background monitoring, scanning, and keep-alive threads started")
     print("🚀 Flask server starting...")
 
     # Start Flask app immediately (no blocking operations)
