@@ -1852,15 +1852,15 @@ if __name__ == "__main__":
 
     # Only start monitoring thread - no heavy operations
     def rapid_monitor():
-    """Monitor positions every 20 seconds"""
-    print("🟢 Rapid monitor thread started")
-    while True:
-        try:
-            if bot_instance and hasattr(bot_instance, 'positions') and bot_instance.positions:
-                bot_instance.monitor_positions()
-        except Exception as e:
-            print(f"[Monitor Thread Error]: {e}")
-        time.sleep(20)
+        """Monitor positions every 20 seconds"""
+        print("🟢 Rapid monitor thread started")
+        while True:
+            try:
+                if bot_instance and hasattr(bot_instance, 'positions') and bot_instance.positions:
+                    bot_instance.monitor_positions()
+            except Exception as e:
+                print(f"[Monitor Thread Error]: {e}")
+            time.sleep(20)
 
     def scan_stocks():
         """Scan for trade opportunities"""
