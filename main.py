@@ -70,8 +70,12 @@ def now_ist():
 def is_market_open_now():
     t = now_ist()
     if t.weekday() >= 5:
-    return False
-    return (t.hour > 9 or (t.hour == 9 and t.minute >= 15)) and (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
+        return False
+    return (
+        (t.hour > 9 or (t.hour == 9 and t.minute >= 15)) 
+        and 
+        (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
+    )
 
 def _make_session():
     session = requests.Session()
@@ -165,6 +169,31 @@ def load_saved_token(self):
             return True
     except Exception:
         return False
+
+def get_account_balance(self, force=False, safety_buffer=0.0):
+    """
+    Fetch available equity balance from Zerodha and return usable cash after safety buffer.
+    safety_buffer: fraction to reserve (e.g., 0.05 = keep 5% aside).
+    """
+    now = now_ist()
+    if not force and hasattr(self, "_last_balance_at") and (now - self._last_balance_at).seconds < 20 and hasattr(self, "_last_balance_value"):
+        # Return cached within 20s to avoid rate limits
+        bal = self._last_balance_value
+    else:
+        try:
+            margins = self.kite.margins()
+            bal = float(margins["equity"]["available"]["live_balance"])
+            self._last_balance_value = bal
+            self._last_balance_at = now
+        except Exception as e:
+            # Fallback to last known or configured default
+            bal = getattr(self, "_last_balance_value", DEFAULT_ACCOUNT_EQUITY)
+    usable = max(0.0, bal * (1.0 - safety_buffer))
+    # Keep internal equity heuristic updated
+    self.account_equity = max(bal, DEFAULT_ACCOUNT_EQUITY)
+    self.max_positions = self._max_positions_for_equity(self.account_equity)
+    return usable
+
 
 # ========= Universe Builder =========
 def _fetch_eod_batch(self, tickers, period="12mo"):
@@ -352,6 +381,27 @@ def generate_trade_signal(self, symbol):
     return None
 
 # ========= Sizing / Orders =========
+
+# Pre-trade balance check
+usable_cash = self.get_account_balance(force=False, safety_buffer=0.05)  # keep 5% buffer
+if usable_cash < 2000:
+    logger.info(f"Insufficient usable cash ({usable_cash:.2f}); skipping {symbol}")
+    return False
+
+# Compute stop distance and quantity
+stop_distance = atr5
+if stop_distance <= 0:
+    return False
+
+# Notional cap against current usable cash, not static equity
+max_notional = usable_cash * self.max_notional_pct
+qty = int(max(0, np.floor((self.account_equity * self.risk_per_trade) / stop_distance)))
+if qty * signal_price > max_notional:
+    qty = int(max_notional // signal_price)
+if qty < 1:
+    logger.info(f"Position size too small (qty={qty}); skipping {symbol}")
+    return False
+
 def _max_positions_for_equity(self, eq):
     if eq <= 12000:
         return MAX_POSITIONS_10K
