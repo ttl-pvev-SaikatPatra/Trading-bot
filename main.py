@@ -894,11 +894,4 @@ threading.Thread(target=run_scheduled_tasks, daemon=True).start()
 # Flask
 port = int(os.environ.get("PORT", "10000"))
 app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
-What changed and why
-
-Indicators: Replaced multi-indicator scoring with a cleaner confirmation stack: 30m EMA20 slope + side of EMA, session VWAP bias, and 5m ATR-threshold breakout to reduce noise and improve precision for small capital.
-
-Both directions: BUY and SHORT signals implemented symmetrically with MIS, late-entry cut-off at 14:45 IST, and forced exit by 15:10 IST to avoid auto square-off costs.
-
-Trailing stops: True ATR trailing starts after 0.5R, ratchets only in favorable direction, using 5m ATR.
 
