@@ -65,26 +65,26 @@ STOP_EVENT = threading.Event()
 
 #==================== Helpers ====================
 def now_ist():
-return datetime.utcnow() + timedelta(hours=5, minutes=30)
+    return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
 def is_market_open_now():
-t = now_ist()
-if t.weekday() >= 5:
-return False
-return (t.hour > 9 or (t.hour == 9 and t.minute >= 15)) and (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
+    t = now_ist()
+    if t.weekday() >= 5:
+    return False
+    return (t.hour > 9 or (t.hour == 9 and t.minute >= 15)) and (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
 
 def _make_session():
-session = requests.Session()
-retries = Retry(total=3, backoff_factor=0.5, status_forcelist=, allowed_methods=["GET"])
-adapter = HTTPAdapter(max_retries=retries)
-session.mount("http://", adapter)
-session.mount("https://", adapter)
-return session
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=, allowed_methods=["GET"])
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 def round2(x):
 try:
-return round(float(x), 2)
-except Exception:
+    return round(float(x), 2)
+    except Exception:
 return x
 
 #==================== Bot Class ====================
