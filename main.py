@@ -18,7 +18,7 @@ from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from kiteconnect import KiteConnect
 
-==================== Config & Globals ====================
+#==================== Config & Globals ====================
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime_time(9, 15)
 MARKET_CLOSE = datetime_time(15, 30)
@@ -63,7 +63,7 @@ logger = logging.getLogger("TradingBot")
 Web keep-alive
 STOP_EVENT = threading.Event()
 
-==================== Helpers ====================
+#==================== Helpers ====================
 def now_ist():
 return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
@@ -87,7 +87,7 @@ return round(float(x), 2)
 except Exception:
 return x
 
-==================== Bot Class ====================
+#==================== Bot Class ====================
 class AutoTradingBot:
 def init(self):
 self.kite = KiteConnect(api_key=API_KEY)
@@ -625,7 +625,7 @@ def run_trading_cycle(self):
 Global bot instance
 bot = AutoTradingBot()
 
-==================== Keep-alive thread ====================
+#==================== Keep-alive thread ====================
 def keep_alive_ping(interval_seconds=300, timeout_seconds=5, url_env_var="RENDER_PUBLIC_URL"):
 session = _make_session()
 base_url = os.environ.get(url_env_var)
@@ -655,7 +655,7 @@ STOP_EVENT.set()
 signal.signal(signal.SIGINT, _shutdown)
 signal.signal(signal.SIGTERM, _shutdown)
 
-==================== Flask Routes ====================
+#==================== Flask Routes ====================
 @app.route("/")
 def home():
 status = "Active" if bot.access_token else "Inactive"
@@ -860,7 +860,7 @@ if not os.path.exists(fname):
 return jsonify({"success": False, "message": "No CSV"}), 404
 return send_file(fname, as_attachment=True)
 
-==================== App main ====================
+#==================== App main ====================
 if name == "main":
 print("Intraday Trading Bot (VWAP+ATR+MTF)")
 print("Order Exec: Zerodha | Data: Yahoo Finance (demo)")
