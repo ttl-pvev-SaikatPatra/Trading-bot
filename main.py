@@ -27,10 +27,10 @@ API_KEY = os.environ.get('KITE_API_KEY')
 API_SECRET = os.environ.get('KITE_API_SECRET')
 
 if not API_KEY or not API_SECRET:
-print("ERROR: Missing KITE_API_KEY or KITE_API_SECRET in environment.")
+    print("ERROR: Missing KITE_API_KEY or KITE_API_SECRET in environment.")
 raise SystemExit(1)
 
-Small-capital friendly risk defaults
+#Small-capital friendly risk defaults
 DEFAULT_ACCOUNT_EQUITY = float(os.environ.get("ACCOUNT_EQUITY", "10000")) # demo only; real balance via margins
 RISK_PER_TRADE = float(os.environ.get("RISK_PER_TRADE", "0.01")) # 1% per trade
 MAX_POSITIONS_10K = int(os.environ.get("MAX_POS_10K", "2"))
@@ -56,11 +56,11 @@ BASE_TICKERS = [
 app = Flask(name)
 CORS(app, origins=['*'])
 
-Logging
+#Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("TradingBot")
 
-Web keep-alive
+#Web keep-alive
 STOP_EVENT = threading.Event()
 
 #==================== Helpers ====================
