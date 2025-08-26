@@ -35,10 +35,10 @@ if not API_KEY or not API_SECRET:
 
 #Small-capital friendly risk defaults
 DEFAULT_ACCOUNT_EQUITY = float(os.environ.get("ACCOUNT_EQUITY", "10000")) # demo only; real balance via margins
-RISK_PER_TRADE = float(os.environ.get("RISK_PER_TRADE", "0.01")) # 1% per trade
+RISK_PER_TRADE = float(os.environ.get("RISK_PER_TRADE", "0.04")) # 1% per trade
 MAX_POSITIONS_10K = int(os.environ.get("MAX_POS_10K", "2"))
 MAX_POSITIONS_20K = int(os.environ.get("MAX_POS_20K", "3"))
-MAX_POSITIONS_30K = int(os.environ.get("MAX_POS_30K", "3"))
+MAX_POSITIONS_30K = int(os.environ.get("MAX_POS_30K", "4"))
 MAX_NOTIONAL_PCT = float(os.environ.get("MAX_NOTIONAL_PCT", "0.15")) # cap notional/trade
 
 UNIVERSE_SIZE = int(os.environ.get("UNIVERSE_SIZE", "40")) # daily universe shortlist size
@@ -954,7 +954,7 @@ def backtest_csv():
     if __name__ == "__main__":
         print("Intraday Trading Bot (VWAP+ATR+MTF)")
         print("Order Exec: Zerodha | Data: Yahoo Finance (demo)")
-        print("Risk/trade 1% | MTF EMA20 + VWAP | ATR breakout & trailing")
+        print("Risk/trade 4% | MTF EMA20 + VWAP | ATR breakout & trailing")
         start_keep_alive_thread(interval_seconds=int(os.environ.get("KEEPALIVE_SEC","120")))
         # Rapid monitor thread
         def rapid_monitor():
