@@ -13,6 +13,7 @@ import schedule
 import yfinance as yf
 import requests
 from requests.adapters import HTTPAdapter, Retry
+from urllib3.util.retry import Retry
 
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
@@ -77,19 +78,27 @@ def is_market_open_now():
         (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
     )
 
-def _make_session():
-    session = requests.Session()
-    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=, allowed_methods=["GET"])
-    adapter = HTTPAdapter(max_retries=retries)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
-
-def round2(x):
+session = requests.Session()
 try:
-    return round(float(x), 2)
-    except Exception:
-return x
+    # Newer urllib3 (2.x): uses allowed_methods
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=,
+        allowed_methods=["HEAD", "GET", "OPTIONS"]
+    )
+except TypeError:
+    # Older urllib3 (1.26.x): uses method_whitelist
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=,
+        method_whitelist=["HEAD", "GET", "OPTIONS"]
+    )
+adapter = HTTPAdapter(max_retries=retries)
+session.mount("http://", adapter)
+session.mount("https://", adapter)
+return session
 
 #==================== Bot Class ====================
 class AutoTradingBot:
