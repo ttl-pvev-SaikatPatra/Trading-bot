@@ -684,8 +684,7 @@ class AutoTradingBot:
         except Exception as e:
             logger.error(f"Cycle error: {e}")
             self.bot_status = f"Error: {e}"
-    #Global bot instance
-    bot = AutoTradingBot()
+
 
     #==================== Keep-alive thread ====================
     def keep_alive_ping(interval_seconds=300, timeout_seconds=5, url_env_var="RENDER_PUBLIC_URL"):
@@ -730,6 +729,9 @@ class AutoTradingBot:
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
+
+#Global bot instance
+bot = AutoTradingBot()
 
 
     #==================== Flask Routes ====================
