@@ -681,7 +681,7 @@ class AutoTradingBot:
         except Exception as e:
             logger.error(f"Cycle error: {e}")
             self.bot_status = f"Error: {e}"
-    Global bot instance
+    #Global bot instance
     bot = AutoTradingBot()
 
     #==================== Keep-alive thread ====================
