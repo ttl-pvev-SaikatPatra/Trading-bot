@@ -947,7 +947,7 @@ class AutoTradingBot:
         return send_file(fname, as_attachment=True)
 
     #==================== App main ====================
-    if name == "__main__":
+    if __name__ == "__main__":
         print("Intraday Trading Bot (VWAP+ATR+MTF)")
         print("Order Exec: Zerodha | Data: Yahoo Finance (demo)")
         print("Risk/trade 1% | MTF EMA20 + VWAP | ATR breakout & trailing")
@@ -978,4 +978,3 @@ class AutoTradingBot:
         # Flask
         port = int(os.environ.get("PORT", "10000"))
         app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
-
