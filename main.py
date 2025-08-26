@@ -391,25 +391,26 @@ class AutoTradingBot:
 
     # ========= Sizing / Orders =========
 
-    # Pre-trade balance check
-    usable_cash = self.get_account_balance(force=False, safety_buffer=0.05)  # keep 5% buffer
-    if usable_cash < 2000:
-        logger.info(f"Insufficient usable cash ({usable_cash:.2f}); skipping {symbol}")
-        return False
+    def execute_trade(self, symbol, atr5, signal_price):
+        # Pre-trade balance check
+        usable_cash = self.get_account_balance(force=False, safety_buffer=0.05)  # keep 5% buffer
+        if usable_cash < 2000:
+            logger.info(f"Insufficient usable cash ({usable_cash:.2f}); skipping {symbol}")
+            return False
 
-    # Compute stop distance and quantity
-    stop_distance = atr5
-    if stop_distance <= 0:
-        return False
+        # Compute stop distance and quantity
+        stop_distance = atr5
+        if stop_distance <= 0:
+            return False
 
-    # Notional cap against current usable cash, not static equity
-    max_notional = usable_cash * self.max_notional_pct
-    qty = int(max(0, np.floor((self.account_equity * self.risk_per_trade) / stop_distance)))
-    if qty * signal_price > max_notional:
-        qty = int(max_notional // signal_price)
-    if qty < 1:
-        logger.info(f"Position size too small (qty={qty}); skipping {symbol}")
-        return False
+        # Notional cap against current usable cash, not static equity
+        max_notional = usable_cash * self.max_notional_pct
+        qty = int(max(0, np.floor((self.account_equity * self.risk_per_trade) / stop_distance)))
+        if qty * signal_price > max_notional:
+            qty = int(max_notional // signal_price)
+        if qty < 1:
+            logger.info(f"Position size too small (qty={qty}); skipping {symbol}")
+            return False
 
     def _max_positions_for_equity(self, eq):
         if eq <= 12000:
