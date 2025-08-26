@@ -1,3 +1,4 @@
+print("Starting app...")
 import logging
 import os
 import json
