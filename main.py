@@ -77,17 +77,15 @@ def is_market_open_now():
         and 
         (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
     )
+
 def _make_session():
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
     session = requests.Session()
     try:
         # Newer urllib3 (2.x)
         retries = Retry(
             total=3,
             backoff_factor=0.5,
-            status_forcelist=,
+            status_forcelist=[500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS"]
         )
     except TypeError:
@@ -95,7 +93,7 @@ from urllib3.util.retry import Retry
         retries = Retry(
             total=3,
             backoff_factor=0.5,
-            status_forcelist=,
+            status_forcelist=[500, 502, 503, 504],
             method_whitelist=["HEAD", "GET", "OPTIONS"]
         )
     adapter = HTTPAdapter(max_retries=retries)
