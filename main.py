@@ -1,3 +1,4 @@
+print("Starting app...")
 import logging
 import os
 import json
@@ -29,7 +30,8 @@ API_SECRET = os.environ.get('KITE_API_SECRET')
 
 if not API_KEY or not API_SECRET:
     print("ERROR: Missing KITE_API_KEY or KITE_API_SECRET in environment.")
-raise SystemExit(1)
+    print(f"Missing API_KEY: {API_KEY}, API_SECRET: {API_SECRET}")
+#raise SystemExit(1)
 
 #Small-capital friendly risk defaults
 DEFAULT_ACCOUNT_EQUITY = float(os.environ.get("ACCOUNT_EQUITY", "10000")) # demo only; real balance via margins
@@ -733,250 +735,250 @@ bot = AutoTradingBot()
 
 
 #==================== Flask Routes ====================
-@app.route("/")
-def home():
-    status = "Active" if bot.access_token else "Inactive"
-    positions_count = len(bot.positions)
-    market_status = "Open" if is_market_open_now() else "Closed"
-    current_time = now_ist().strftime("%Y-%m-%d %H:%M:%S IST")
-    return f"""
-    <html><head><title>Trading Bot Dashboard</title></head><body>
-    <h1>🤖 Intraday Trading Bot (VWAP+ATR+MTF)</h1>
-    <p><b>Status:</b> {status}</p>
-    <p><b>Positions Open:</b> {positions_count}</p>
-    <p><b>Market Status:</b> {market_status}</p>
-    <p><b>Risk/trade:</b> {int(bot.risk_per_trade*100)}% | <b>Max Positions:</b> {bot.max_positions}</p>
-    <p><small>Last updated: {current_time}</small></p>
-    </body></html>
-    """
+    @app.route("/")
+    def home():
+        status = "Active" if bot.access_token else "Inactive"
+        positions_count = len(bot.positions)
+        market_status = "Open" if is_market_open_now() else "Closed"
+        current_time = now_ist().strftime("%Y-%m-%d %H:%M:%S IST")
+        return f"""
+        <html><head><title>Trading Bot Dashboard</title></head><body>
+        <h1>🤖 Intraday Trading Bot (VWAP+ATR+MTF)</h1>
+        <p><b>Status:</b> {status}</p>
+        <p><b>Positions Open:</b> {positions_count}</p>
+        <p><b>Market Status:</b> {market_status}</p>
+        <p><b>Risk/trade:</b> {int(bot.risk_per_trade*100)}% | <b>Max Positions:</b> {bot.max_positions}</p>
+        <p><small>Last updated: {current_time}</small></p>
+        </body></html>
+        """
 
-@app.route("/health")
-def health():
-    return jsonify({
-    "status": "healthy",
-    "timestamp": now_ist().strftime("%Y-%m-%d %H:%M:%S IST"),
-    "flask_working": True,
-    "bot_active": bot.access_token is not None,
-    "positions_count": len(bot.positions),
-    "market_open": is_market_open_now(),
-    "features": ["BUY+SHORT","VWAP","EMA20 MTF","ATR breakout","ATR trailing","MIS exits"]
-    })
-
-@app.route("/session/exchange", methods=["POST"])
-def session_exchange():
-    data = request.get_json(force=True)
-    request_token = data.get("request_token")
-    if not request_token or len(request_token) < 10:
-        return jsonify({"success": False, "message": "Invalid request_token"}), 400
-    ok = bot.authenticate_with_request_token(request_token)
-    return jsonify({"success": ok}), (200 if ok else 400)
-
-@app.route("/initialize", methods=["GET"])
-def initialize():
-    if not bot.access_token:
-        return jsonify({"success": False, "message": "Authenticate first"}), 401
-    bot.load_positions()
-    bot.update_daily_stock_list()
-    bot.start_schedulers()
-    return jsonify({
-        "success": True, 
-        "universe_size": len(bot.daily_stock_list), 
-        "version": bot.universe_version
-    })
-
-@app.route("/api/universe", methods=["GET"])
-def api_universe():
-    with bot._cache_lock:
-        feats = bot.universe_features.copy()
-        if not feats.empty:
-            view = feats[["Symbol","Close","ATR_pct","MedTurn20","Score"]].copy()
-            view["Symbol"] = view["Symbol"].str.replace(".NS","", regex=False)
-            universe_records = view.to_dict(orient="records")
-        else:
-            universe_records = []
-    return jsonify({
-        "version": bot.universe_version,
-        "session_universe": bot.daily_stock_list,
-        "universe": universe_records
-    })
-
-@app.route("/api/universe/rebuild", methods=["POST","GET"])
-def api_universe_rebuild():
-    bot.update_daily_stock_list()
-    return jsonify({
-        "success": True, 
-        "version": bot.universe_version, 
-        "session_universe": bot.daily_stock_list
-    })
-
-@app.route("/api/status", methods=["GET"])
-def api_status():
-    try:
-        margins = bot.kite.margins()
-        available_cash = margins["equity"]["available"]["live_balance"]
-        bot.account_equity = max(available_cash, DEFAULT_ACCOUNT_EQUITY)
-        bot.max_positions = bot._max_positions_for_equity(bot.account_equity)
-    except Exception:
-        available_cash = 0
-
-
-    positions_list = []
-    for pos in bot.positions.values():
-        cur = bot.get_stock_price(pos["symbol"]) or pos["entry_price"]
-        if pos["side"] == "BUY":
-            pnl = (cur - pos["entry_price"]) * pos["quantity"]
-            pnl_percent = ((cur - pos["entry_price"]) / pos["entry_price"]) * 100
-        else:
-            pnl = (pos["entry_price"] - cur) * pos["quantity"]
-            pnl_percent = ((pos["entry_price"] - cur) / pos["entry_price"]) * 100
-        positions_list.append({
-            "symbol": pos["symbol"],
-            "transaction_type": pos["side"],
-            "buy_price": pos["entry_price"],
-            "current_price": cur,
-            "quantity": pos["quantity"],
-            "target_price": pos["target_price"],
-            "stop_loss_price": pos["stop_loss_price"],
-            "entry_time": pos["entry_time"].strftime("%Y-%m-%d %H:%M:%S"),
-            "pnl": pnl,
-            "pnl_percent": pnl_percent
+    @app.route("/health")
+    def health():
+        return jsonify({
+        "status": "healthy",
+        "timestamp": now_ist().strftime("%Y-%m-%d %H:%M:%S IST"),
+        "flask_working": True,
+        "bot_active": bot.access_token is not None,
+        "positions_count": len(bot.positions),
+        "market_open": is_market_open_now(),
+        "features": ["BUY+SHORT","VWAP","EMA20 MTF","ATR breakout","ATR trailing","MIS exits"]
         })
 
-    daily_pnl = sum(p["pnl"] for p in positions_list) if positions_list else 0.0
-    return jsonify({
-        "balance": available_cash,
-        "positions": positions_list,
-        "orders": bot.pending_orders,
-        "market_open": is_market_open_now(),
-        "bot_status": bot.bot_status,
-        "target_profit": bot.target_profit_pct,
-        "stop_loss": bot.stop_loss_pct,
-        "daily_pnl": daily_pnl,
-        "total_trades": bot.total_trades_today,
-        "win_rate": bot.win_rate,
-        "access_token_valid": bot.access_token is not None,
-        "risk_per_trade": bot.risk_per_trade,
-        "max_positions": bot.max_positions,
-        "last_update": now_ist().strftime("%H:%M:%S")
-    })
-@app.route("/api/close-position", methods=["POST"])
-def close_position():
-    data = request.get_json(force=True)
-    symbol = data.get("symbol")
-    if not symbol:
-        return jsonify({"success": False, "message": "Symbol required"}), 400
-# Find open position by symbol
-    found_key = None
-    pos = None
-    for k, p in bot.positions.items():
-        if p["symbol"] == symbol:
-            found_key = k
-            pos = p
-            break
-    if not found_key:
-        return jsonify({"success": False, "message": "Position not found"}), 404
+    @app.route("/session/exchange", methods=["POST"])
+    def session_exchange():
+        data = request.get_json(force=True)
+        request_token = data.get("request_token")
+        if not request_token or len(request_token) < 10:
+            return jsonify({"success": False, "message": "Invalid request_token"}), 400
+        ok = bot.authenticate_with_request_token(request_token)
+        return jsonify({"success": ok}), (200 if ok else 400)
 
-    is_buy_to_close = (pos["side"] == "SHORT")
-    oid = bot.place_order(symbol, pos["quantity"], is_buy_to_close)
-    if oid:
-        del bot.positions[found_key]
-        bot.save_positions()
-        return jsonify({"success": True, "message": f"Closed {symbol}"})
-    return jsonify({"success": False, "message": "Exit order failed"}), 500
-@app.route("/api/refresh-token", methods=["POST"])
-def refresh_access_token():
-    data = request.get_json(force=True)
-    new_token = data.get("access_token")
-    if not new_token:
-        return jsonify({"success": False, "message": "Token required"}), 400
-    try:
-        bot.kite.set_access_token(new_token)
-        bot.access_token = new_token
-        with open("access_token.txt", "w") as f:
-            f.write(f"{new_token}\n{now_ist().isoformat()}")
-    # verify
-        bot.kite.profile()
-        return jsonify({"success": True, "message": "Token updated"})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 400
-
-@app.route("/control/<action>", methods=["GET"])
-def control(action):
-    if not bot.access_token:
-        return jsonify({"status": "Authenticate first"}), 401
-    if action == "scan":
-        threading.Thread(target=bot.scan_for_opportunities, daemon=True).start()
-        return jsonify({"status": "scan queued"})
-    elif action == "pause":
-        bot.bot_status = "Paused"
-        return jsonify({"status": "paused"})
-    elif action == "resume":
-        bot.bot_status = "Running"
-        return jsonify({"status": "resumed"})
-    elif action == "rebuild_and_scan":
+    @app.route("/initialize", methods=["GET"])
+    def initialize():
+        if not bot.access_token:
+            return jsonify({"success": False, "message": "Authenticate first"}), 401
+        bot.load_positions()
         bot.update_daily_stock_list()
-        threading.Thread(target=bot.scan_for_opportunities, daemon=True).start()
-        return jsonify({"status": "rebuild+scan queued"})
-    return jsonify({"status": f"unknown action {action}"}), 400
+        bot.start_schedulers()
+        return jsonify({
+            "success": True, 
+            "universe_size": len(bot.daily_stock_list), 
+            "version": bot.universe_version
+        })
 
-@app.route("/backtest/run", methods=["POST"])
-def backtest_run():
-    # Minimal placeholder: strategy backtest is non-trivial with intraday slippage.
-    # Returns CSV path after simulated runs (randomized outcome placeholder).
-    start = now_ist().date() - timedelta(days=250)
-    end = now_ist().date()
-    trades = []
-    equity = DEFAULT_ACCOUNT_EQUITY
-    # Dummy: record 20 sessions with small expectancy
-    for i in range(20):
-        pnl = np.random.normal(loc=equity * 0.002, scale=equity * 0.004) # illustrative
-        equity += pnl
-        trades.append({"day": i+1, "pnl": round2(pnl), "equity": round2(equity)})
-    out_csv = "backtest_pnl.csv"
-    pd.DataFrame(trades).to_csv(out_csv, index=False)
-    return jsonify({
-        "success": True, 
-        "final_equity": round2(equity), 
-        "trades": len(trades), 
-        "csv": "/backtest/csv"
-    })
+    @app.route("/api/universe", methods=["GET"])
+    def api_universe():
+        with bot._cache_lock:
+            feats = bot.universe_features.copy()
+            if not feats.empty:
+                view = feats[["Symbol","Close","ATR_pct","MedTurn20","Score"]].copy()
+                view["Symbol"] = view["Symbol"].str.replace(".NS","", regex=False)
+                universe_records = view.to_dict(orient="records")
+            else:
+                universe_records = []
+        return jsonify({
+            "version": bot.universe_version,
+            "session_universe": bot.daily_stock_list,
+            "universe": universe_records
+        })
 
-@app.route("/backtest/csv", methods=["GET"])
-def backtest_csv():
-    fname = "backtest_pnl.csv"
-    if not os.path.exists(fname):
-        return jsonify({"success": False, "message": "No CSV"}), 404
-    return send_file(fname, as_attachment=True)
+    @app.route("/api/universe/rebuild", methods=["POST","GET"])
+    def api_universe_rebuild():
+        bot.update_daily_stock_list()
+        return jsonify({
+            "success": True, 
+            "version": bot.universe_version, 
+            "session_universe": bot.daily_stock_list
+        })
 
-#==================== App main ====================
-if __name__ == "__main__":
-    print("Intraday Trading Bot (VWAP+ATR+MTF)")
-    print("Order Exec: Zerodha | Data: Yahoo Finance (demo)")
-    print("Risk/trade 1% | MTF EMA20 + VWAP | ATR breakout & trailing")
-    start_keep_alive_thread(interval_seconds=int(os.environ.get("KEEPALIVE_SEC","120")))
-    # Rapid monitor thread
-    def rapid_monitor():
-        print("Rapid monitor thread started")
-        while True:
-            try:
-                if bot.positions:
-                    bot.monitor_positions()
-            except Exception as e:
-                print(f"[Monitor Thread Error]: {e}")
-            time.sleep(20)
-    threading.Thread(target=rapid_monitor, daemon=True).start()
-    # Scheduler loop thread
-    def run_scheduled_tasks():
-        print("Scheduler loop started")
-        while True:
-            try:
-                if bot.access_token:
-                    schedule.run_pending()
-            except Exception as e:
-                print(f"[Scheduled Task Error]: {e}")
-            time.sleep(5)
-    threading.Thread(target=run_scheduled_tasks, daemon=True).start()
+    @app.route("/api/status", methods=["GET"])
+    def api_status():
+        try:
+            margins = bot.kite.margins()
+            available_cash = margins["equity"]["available"]["live_balance"]
+            bot.account_equity = max(available_cash, DEFAULT_ACCOUNT_EQUITY)
+            bot.max_positions = bot._max_positions_for_equity(bot.account_equity)
+        except Exception:
+            available_cash = 0
 
-    # Flask
-    port = int(os.environ.get("PORT", "10000"))
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+    
+        positions_list = []
+        for pos in bot.positions.values():
+            cur = bot.get_stock_price(pos["symbol"]) or pos["entry_price"]
+            if pos["side"] == "BUY":
+                pnl = (cur - pos["entry_price"]) * pos["quantity"]
+                pnl_percent = ((cur - pos["entry_price"]) / pos["entry_price"]) * 100
+            else:
+                pnl = (pos["entry_price"] - cur) * pos["quantity"]
+                pnl_percent = ((pos["entry_price"] - cur) / pos["entry_price"]) * 100
+            positions_list.append({
+                "symbol": pos["symbol"],
+                "transaction_type": pos["side"],
+                "buy_price": pos["entry_price"],
+                "current_price": cur,
+                "quantity": pos["quantity"],
+                "target_price": pos["target_price"],
+                "stop_loss_price": pos["stop_loss_price"],
+                "entry_time": pos["entry_time"].strftime("%Y-%m-%d %H:%M:%S"),
+                "pnl": pnl,
+                "pnl_percent": pnl_percent
+            })
+
+        daily_pnl = sum(p["pnl"] for p in positions_list) if positions_list else 0.0
+        return jsonify({
+            "balance": available_cash,
+            "positions": positions_list,
+            "orders": bot.pending_orders,
+            "market_open": is_market_open_now(),
+            "bot_status": bot.bot_status,
+            "target_profit": bot.target_profit_pct,
+            "stop_loss": bot.stop_loss_pct,
+            "daily_pnl": daily_pnl,
+            "total_trades": bot.total_trades_today,
+            "win_rate": bot.win_rate,
+            "access_token_valid": bot.access_token is not None,
+            "risk_per_trade": bot.risk_per_trade,
+            "max_positions": bot.max_positions,
+            "last_update": now_ist().strftime("%H:%M:%S")
+        })
+    @app.route("/api/close-position", methods=["POST"])
+    def close_position():
+        data = request.get_json(force=True)
+        symbol = data.get("symbol")
+        if not symbol:
+            return jsonify({"success": False, "message": "Symbol required"}), 400
+    # Find open position by symbol
+        found_key = None
+        pos = None
+        for k, p in bot.positions.items():
+            if p["symbol"] == symbol:
+                found_key = k
+                pos = p
+                break
+        if not found_key:
+            return jsonify({"success": False, "message": "Position not found"}), 404
+
+        is_buy_to_close = (pos["side"] == "SHORT")
+        oid = bot.place_order(symbol, pos["quantity"], is_buy_to_close)
+        if oid:
+            del bot.positions[found_key]
+            bot.save_positions()
+            return jsonify({"success": True, "message": f"Closed {symbol}"})
+        return jsonify({"success": False, "message": "Exit order failed"}), 500
+    @app.route("/api/refresh-token", methods=["POST"])
+    def refresh_access_token():
+        data = request.get_json(force=True)
+        new_token = data.get("access_token")
+        if not new_token:
+            return jsonify({"success": False, "message": "Token required"}), 400
+        try:
+            bot.kite.set_access_token(new_token)
+            bot.access_token = new_token
+            with open("access_token.txt", "w") as f:
+                f.write(f"{new_token}\n{now_ist().isoformat()}")
+        # verify
+            bot.kite.profile()
+            return jsonify({"success": True, "message": "Token updated"})
+        except Exception as e:
+            return jsonify({"success": False, "message": str(e)}), 400
+
+    @app.route("/control/<action>", methods=["GET"])
+    def control(action):
+        if not bot.access_token:
+            return jsonify({"status": "Authenticate first"}), 401
+        if action == "scan":
+            threading.Thread(target=bot.scan_for_opportunities, daemon=True).start()
+            return jsonify({"status": "scan queued"})
+        elif action == "pause":
+            bot.bot_status = "Paused"
+            return jsonify({"status": "paused"})
+        elif action == "resume":
+            bot.bot_status = "Running"
+            return jsonify({"status": "resumed"})
+        elif action == "rebuild_and_scan":
+            bot.update_daily_stock_list()
+            threading.Thread(target=bot.scan_for_opportunities, daemon=True).start()
+            return jsonify({"status": "rebuild+scan queued"})
+        return jsonify({"status": f"unknown action {action}"}), 400
+
+    @app.route("/backtest/run", methods=["POST"])
+    def backtest_run():
+        # Minimal placeholder: strategy backtest is non-trivial with intraday slippage.
+        # Returns CSV path after simulated runs (randomized outcome placeholder).
+        start = now_ist().date() - timedelta(days=250)
+        end = now_ist().date()
+        trades = []
+        equity = DEFAULT_ACCOUNT_EQUITY
+        # Dummy: record 20 sessions with small expectancy
+        for i in range(20):
+            pnl = np.random.normal(loc=equity * 0.002, scale=equity * 0.004) # illustrative
+            equity += pnl
+            trades.append({"day": i+1, "pnl": round2(pnl), "equity": round2(equity)})
+        out_csv = "backtest_pnl.csv"
+        pd.DataFrame(trades).to_csv(out_csv, index=False)
+        return jsonify({
+            "success": True, 
+            "final_equity": round2(equity), 
+            "trades": len(trades), 
+            "csv": "/backtest/csv"
+        })
+
+    @app.route("/backtest/csv", methods=["GET"])
+    def backtest_csv():
+        fname = "backtest_pnl.csv"
+        if not os.path.exists(fname):
+            return jsonify({"success": False, "message": "No CSV"}), 404
+        return send_file(fname, as_attachment=True)
+
+    #==================== App main ====================
+    if __name__ == "__main__":
+        print("Intraday Trading Bot (VWAP+ATR+MTF)")
+        print("Order Exec: Zerodha | Data: Yahoo Finance (demo)")
+        print("Risk/trade 1% | MTF EMA20 + VWAP | ATR breakout & trailing")
+        start_keep_alive_thread(interval_seconds=int(os.environ.get("KEEPALIVE_SEC","120")))
+        # Rapid monitor thread
+        def rapid_monitor():
+            print("Rapid monitor thread started")
+            while True:
+                try:
+                    if bot.positions:
+                        bot.monitor_positions()
+                except Exception as e:
+                    print(f"[Monitor Thread Error]: {e}")
+                time.sleep(20)
+        threading.Thread(target=rapid_monitor, daemon=True).start()
+        # Scheduler loop thread
+        def run_scheduled_tasks():
+            print("Scheduler loop started")
+            while True:
+                try:
+                    if bot.access_token:
+                        schedule.run_pending()
+                except Exception as e:
+                    print(f"[Scheduled Task Error]: {e}")
+                time.sleep(5)
+        threading.Thread(target=run_scheduled_tasks, daemon=True).start()
+
+        # Flask
+        port = int(os.environ.get("PORT", "10000"))
+        app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
