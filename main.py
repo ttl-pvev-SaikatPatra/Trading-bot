@@ -78,30 +78,27 @@ def is_market_open_now():
         (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
     )
 def _make_session():
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
     session = requests.Session()
-    try:
-        # Newer urllib3 (2.x)
-        retries = Retry(
-            total=3,
-            backoff_factor=0.5,
-            status_forcelist=,
-            allowed_methods=["HEAD", "GET", "OPTIONS"]
-        )
-    except TypeError:
-        # Older urllib3 (1.26.x)
-        retries = Retry(
-            total=3,
-            backoff_factor=0.5,
-            status_forcelist=,
-            method_whitelist=["HEAD", "GET", "OPTIONS"]
-        )
-    adapter = HTTPAdapter(max_retries=retries)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
+        try:
+            # Newer urllib3 (2.x)
+            retries = Retry(
+                total=3,
+                backoff_factor=0.5,
+                status_forcelist=,
+                allowed_methods=["HEAD", "GET", "OPTIONS"]
+            )
+        except TypeError:
+            # Older urllib3 (1.26.x)
+            retries = Retry(
+                total=3,
+                backoff_factor=0.5,
+                status_forcelist=,
+                method_whitelist=["HEAD", "GET", "OPTIONS"]
+            )
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
 
 
 #==================== Bot Class ====================
