@@ -1,4 +1,3 @@
-print("Starting app...")
 import logging
 import os
 import json
@@ -30,8 +29,7 @@ API_SECRET = os.environ.get('KITE_API_SECRET')
 
 if not API_KEY or not API_SECRET:
     print("ERROR: Missing KITE_API_KEY or KITE_API_SECRET in environment.")
-    print(f"Missing API_KEY: {API_KEY}, API_SECRET: {API_SECRET}")
-#raise SystemExit(1)
+raise SystemExit(1)
 
 #Small-capital friendly risk defaults
 DEFAULT_ACCOUNT_EQUITY = float(os.environ.get("ACCOUNT_EQUITY", "10000")) # demo only; real balance via margins
