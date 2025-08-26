@@ -78,6 +78,9 @@ def is_market_open_now():
         (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
     )
 def _make_session():
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
     session = requests.Session()
     try:
         # Newer urllib3 (2.x)
