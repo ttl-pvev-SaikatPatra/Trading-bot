@@ -54,7 +54,7 @@ BASE_TICKERS = [
 "DRREDDY.NS","SBILIFE.NS","GRASIM.NS","HINDALCO.NS","INDUSINDBK.NS","BAJAJFINSV.NS","TATAMOTORS.NS","HEROMOTOCO.NS"
 ]
 
-app = Flask(name)
+app = Flask(__name__)
 CORS(app, origins=['*'])
 
 #Logging
