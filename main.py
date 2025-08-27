@@ -849,10 +849,8 @@ def api_status():
         available_cash = 0
         access_valid = False
     auth_required = not access_valid
-    ...
     return jsonify({
         "balance": available_cash,
-        ...
         "access_token_valid": access_valid,
         "auth_required": auth_required,
     })
