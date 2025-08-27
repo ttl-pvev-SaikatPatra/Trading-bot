@@ -172,14 +172,41 @@ class AutoTradingBot:
     def load_saved_token(self):
         try:
             with open("access_token.txt", "r") as f:
-                lines = f.read().strip().split("\n")
-                token = lines
-                self.kite.set_access_token(token)
-                self.access_token = token
+                first_line = f.readline().strip()
+                if not first_line:
+                    return False
+                self.kite.set_access_token(first_line)
+                self.access_token = first_line
                 self.bot_status = "Active"
-                return True
+            try:
+                self.kite.profile()
+            except Exception:
+                self.bot_status = "Auth Required"
+                return False
+            return True
         except Exception:
             return False
+
+    def is_token_valid(self):
+        if not self.access_token:
+            return False
+        try:
+            self.kite.profile()
+            return True
+        except Exception:
+            return False
+    def schedule_auth_checks(self):
+        schedule.every().day.at("08:30").do(self.check_and_mark_auth)
+
+    def check_and_mark_auth(self):
+        if not self.is_token_valid():
+            self.bot_status = "Auth Required"
+        # Clear in-memory token to prevent accidental calls
+            self.access_token = None
+
+    
+
+
 
     def get_account_balance(self, force=False, safety_buffer=0.0):
         """
@@ -658,20 +685,21 @@ class AutoTradingBot:
 
     # ========= Scheduling =========
     def start_schedulers(self):
-        if self._scheduler_started:
-            return
+        if self._scheduler_started: return
         schedule.clear()
-        # primary cycle every 15 minutes
         schedule.every(15).minutes.do(self.run_trading_cycle)
-        # scanner assist (optional separate)
         schedule.every(15).minutes.do(self.scan_for_opportunities)
+        self.schedule_auth_checks()
         self._scheduler_started = True
-        logger.info("Schedulers set: 15-min cycles and scan.")
+        logger.info("Schedulers set: 15-min cycles, scan, and auth check.")
 
     def run_trading_cycle(self):
         try:
             self.bot_status = "Running"
             if not is_market_open_now():
+                if self.bot_status == "Auth Required" or not self.access_token:
+                    logger.info("Auth required; trading cycle skipped.")
+                return
                 if self.positions:
                     self.monitor_positions()
                 self.bot_status = "Market Closed"
@@ -816,10 +844,18 @@ def api_status():
     try:
         margins = bot.kite.margins()
         available_cash = margins["equity"]["available"]["live_balance"]
-        bot.account_equity = max(available_cash, DEFAULT_ACCOUNT_EQUITY)
-        bot.max_positions = bot._max_positions_for_equity(bot.account_equity)
+        access_valid = True
     except Exception:
         available_cash = 0
+        access_valid = False
+    auth_required = not access_valid
+    ...
+    return jsonify({
+        "balance": available_cash,
+        ...
+        "access_token_valid": access_valid,
+        "auth_required": auth_required,
+    })
 
 
     positions_list = []
@@ -949,6 +985,124 @@ def backtest_csv():
     if not os.path.exists(fname):
         return jsonify({"success": False, "message": "No CSV"}), 404
     return send_file(fname, as_attachment=True)
+
+from flask import redirect, url_for
+import hashlib
+import urllib.parse
+
+# New config
+FRONTEND_URL = os.environ.get("https://trading-app-phi-liart.vercel.app/", "")  # e.g., https://your-vercel-app.vercel.app
+
+def _kite_login_url(api_key: str, redirect_params: dict | None = None):
+    base = "https://kite.zerodha.com/connect/login?v=3"
+    qp = {"api_key": api_key}
+    # Optional: pass opaque redirect_params that Zerodha will append back to redirect URL
+    # Value must be URL-encoded query string, e.g., some=X&more=Y
+    if redirect_params:
+        qp["redirect_params"] = urllib.parse.quote_plus(urllib.parse.urlencode(redirect_params))
+    return f"{base}&{urllib.parse.urlencode(qp)}"
+
+@app.route("/auth/login", methods=["GET"])
+def auth_login():
+    """
+    Redirect user to Zerodha login. Optionally accept `state` and `next` query params.
+    - state: opaque string echoed back via redirect_params (optional)
+    - next: frontend path to return to after success/failure (optional)
+    """
+    if not API_KEY or not API_SECRET:
+        return jsonify({"success": False, "message": "Server missing API creds"}), 500
+    state = request.args.get("state", "")
+    next_path = request.args.get("next", "/")
+    # include next in redirect_params so we get it back at callback if needed
+    rp = {}
+    if state:
+        rp["state"] = state
+    if next_path:
+        rp["next"] = next_path
+    url = _kite_login_url(API_KEY, redirect_params=rp if rp else None)
+    return redirect(url, code=302)
+
+@app.route("/auth/callback", methods=["GET"])
+def auth_callback():
+    """
+    Zerodha redirects here with ?request_token=...&status=success.
+    Exchange for access_token and persist. Then redirect to frontend.
+    """
+    req_token = request.args.get("request_token")
+    status_param = request.args.get("status")  # typically 'success'
+    # Zerodha echoes redirect_params as individual query params if used
+    next_path = request.args.get("next", "/")
+    state = request.args.get("state", "")
+
+    if not req_token or len(req_token) < 10:
+        return _finish_auth_redirect(False, "Missing or invalid request_token", next_path, state)
+
+    try:
+        # Exchange request_token for access_token
+        sess = bot.kite.generate_session(req_token, api_secret=API_SECRET)
+        access_token = sess["access_token"]
+        bot.kite.set_access_token(access_token)
+        bot.access_token = access_token
+        # Persist to file (keeping existing convention)
+        with open("access_token.txt", "w") as f:
+            f.write(f"{access_token}\n{now_ist().isoformat()}")
+        # Optional sanity calls and equity refresh
+        try:
+            profile = bot.kite.profile()
+            margins = bot.kite.margins()
+            bal = float(margins["equity"]["available"]["live_balance"])
+            bot.account_equity = max(bal, DEFAULT_ACCOUNT_EQUITY)
+            bot.max_positions = bot._max_positions_for_equity(bot.account_equity)
+        except Exception:
+            pass
+        # Optionally start schedulers after auth
+        try:
+            bot.start_schedulers()
+        except Exception:
+            pass
+        return _finish_auth_redirect(True, "ok", next_path, state)
+    except Exception as e:
+        # Log and fail
+        logger.error(f"/auth/callback exchange failed: {e}")
+        return _finish_auth_redirect(False, "exchange_failed", next_path, state)
+
+def _finish_auth_redirect(success: bool, code: str, next_path: str, state: str):
+    """
+    Redirect back to frontend with query flags:
+      ?auth=success|fail&code=<code>&state=<state>
+    """
+    front = FRONTEND_URL.rstrip("/")
+    if not front:
+        # Fallback JSON if FRONTEND_URL not set
+        return jsonify({"success": success, "code": code})
+    # Build redirect URL
+    qp = {
+        "auth": "success" if success else "fail",
+        "code": code
+    }
+    if state:
+        qp["state"] = state
+    url = f"{front}{next_path if next_path.startswith('/') else '/'}{'' if '?' in next_path else ''}"
+    sep = "&" if "?" in url else "?"
+    url = url + sep + urllib.parse.urlencode(qp)
+    return redirect(url, code=302)
+
+@app.route("/auth/status", methods=["GET"])
+def auth_status():
+    return jsonify({
+        "authenticated": bot.access_token is not None,
+        "bot_status": bot.bot_status,
+        "market_open": is_market_open_now()
+    })
+
+@app.route("/auth/logout", methods=["POST"])
+def auth_logout():
+    try:
+        bot.access_token = None
+        # Soft clear; avoid calling kite.invalidate because not all plans support
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
     #==================== App main ====================
     if __name__ == "__main__":
