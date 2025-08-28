@@ -13,60 +13,59 @@ import pytz
 import schedule
 import yfinance as yf
 import requests
-from requests.adapters import HTTPAdapter, Retry
+from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, redirect
 from flask_cors import CORS
 from kiteconnect import KiteConnect
+import urllib.parse
 
-#==================== Config & Globals ====================
+# ==================== Config & Globals ====================
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime_time(9, 15)
 MARKET_CLOSE = datetime_time(15, 30)
 
-API_KEY = os.environ.get('KITE_API_KEY')
-API_SECRET = os.environ.get('KITE_API_SECRET')
+API_KEY = os.environ.get("KITE_API_KEY")
+API_SECRET = os.environ.get("KITE_API_SECRET")
 
 if not API_KEY or not API_SECRET:
     print("ERROR: Missing KITE_API_KEY or KITE_API_SECRET in environment.")
     print(f"Missing API_KEY: {API_KEY}, API_SECRET: {API_SECRET}")
-#raise SystemExit(1)
 
-#Small-capital friendly risk defaults
-DEFAULT_ACCOUNT_EQUITY = float(os.environ.get("ACCOUNT_EQUITY", "10000")) # demo only; real balance via margins
-RISK_PER_TRADE = float(os.environ.get("RISK_PER_TRADE", "0.04")) # 1% per trade
+DEFAULT_ACCOUNT_EQUITY = float(os.environ.get("ACCOUNT_EQUITY", "10000"))
+RISK_PER_TRADE = float(os.environ.get("RISK_PER_TRADE", "0.04"))
 MAX_POSITIONS_10K = int(os.environ.get("MAX_POS_10K", "2"))
 MAX_POSITIONS_20K = int(os.environ.get("MAX_POS_20K", "3"))
 MAX_POSITIONS_30K = int(os.environ.get("MAX_POS_30K", "4"))
-MAX_NOTIONAL_PCT = float(os.environ.get("MAX_NOTIONAL_PCT", "0.15")) # cap notional/trade
+MAX_NOTIONAL_PCT = float(os.environ.get("MAX_NOTIONAL_PCT", "0.15"))
 
-UNIVERSE_SIZE = int(os.environ.get("UNIVERSE_SIZE", "40")) # daily universe shortlist size
+UNIVERSE_SIZE = int(os.environ.get("UNIVERSE_SIZE", "40"))
 HYST_ADD_RANK = int(os.environ.get("HYST_ADD_RANK", "30"))
 HYST_DROP_RANK = int(os.environ.get("HYST_DROP_RANK", "50"))
 
 BACKTEST_YEARS = int(os.environ.get("BACKTEST_YEARS", "1"))
 
 BASE_TICKERS = [
-"RELIANCE.NS","HDFCBANK.NS","ICICIBANK.NS","INFY.NS","TCS.NS","KOTAKBANK.NS","SBIN.NS",
-"BHARTIARTL.NS","LT.NS","AXISBANK.NS","ITC.NS","HINDUNILVR.NS","BAJFINANCE.NS","MARUTI.NS",
-"ULTRACEMCO.NS","SUNPHARMA.NS","TITAN.NS","WIPRO.NS","ASIANPAINT.NS","HCLTECH.NS","NESTLEIND.NS",
-"M&M.NS","POWERGRID.NS","NTPC.NS","ONGC.NS","ADANIENT.NS","ADANIPORTS.NS","JSWSTEEL.NS","TATASTEEL.NS",
-"COALINDIA.NS","DIVISLAB.NS","TECHM.NS","LTIM.NS","BRITANNIA.NS","BPCL.NS","EICHERMOT.NS","HDFCLIFE.NS",
-"DRREDDY.NS","SBILIFE.NS","GRASIM.NS","HINDALCO.NS","INDUSINDBK.NS","BAJAJFINSV.NS","TATAMOTORS.NS","HEROMOTOCO.NS"
+    "RELIANCE.NS","HDFCBANK.NS","ICICIBANK.NS","INFY.NS","TCS.NS","KOTAKBANK.NS","SBIN.NS",
+    "BHARTIARTL.NS","LT.NS","AXISBANK.NS","ITC.NS","HINDUNILVR.NS","BAJFINANCE.NS","MARUTI.NS",
+    "ULTRACEMCO.NS","SUNPHARMA.NS","TITAN.NS","WIPRO.NS","ASIANPAINT.NS","HCLTECH.NS","NESTLEIND.NS",
+    "M&M.NS","POWERGRID.NS","NTPC.NS","ONGC.NS","ADANIENT.NS","ADANIPORTS.NS","JSWSTEEL.NS","TATASTEEL.NS",
+    "COALINDIA.NS","DIVISLAB.NS","TECHM.NS","LTIM.NS","BRITANNIA.NS","BPCL.NS","EICHERMOT.NS","HDFCLIFE.NS",
+    "DRREDDY.NS","SBILIFE.NS","GRASIM.NS","HINDALCO.NS","INDUSINDBK.NS","BAJAJFINSV.NS","TATAMOTORS.NS","HEROMOTOCO.NS"
 ]
 
-app = Flask(__name__)
-CORS(app, origins=['*'])
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "").rstrip("/")
 
-#Logging
+app = Flask(__name__)
+CORS(app, origins=["*"])
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("TradingBot")
 
-#Web keep-alive
 STOP_EVENT = threading.Event()
 
-#==================== Helpers ====================
+# ==================== Helpers ====================
 def now_ist():
     return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
@@ -74,78 +73,58 @@ def is_market_open_now():
     t = now_ist()
     if t.weekday() >= 5:
         return False
-    return (
-        (t.hour > 9 or (t.hour == 9 and t.minute >= 15)) 
-        and 
-        (t.hour < 15 or (t.hour == 15 and t.minute <= 30))
-    )
+    return ((t.hour > 9 or (t.hour == 9 and t.minute >= 15)) and
+            (t.hour < 15 or (t.hour == 15 and t.minute <= 30)))
 
 def _make_session():
     session = requests.Session()
     try:
-        # Newer urllib3 (2.x)
-        retries = Retry(
-            total=3,
-            backoff_factor=0.5,
-            status_forcelist=[500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS"]
-        )
+        retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], allowed_methods=["HEAD", "GET", "OPTIONS"])
     except TypeError:
-        # Older urllib3 (1.26.x)
-        retries = Retry(
-            total=3,
-            backoff_factor=0.5,
-            status_forcelist=[500, 502, 503, 504],
-            method_whitelist=["HEAD", "GET", "OPTIONS"]
-        )
+        retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
 
+def round2(x):
+    try:
+        return float(f"{float(x):.2f}")
+    except Exception:
+        return x
 
-#==================== Bot Class ====================
+# ==================== Bot Class ====================
 class AutoTradingBot:
     def __init__(self):
         self.kite = KiteConnect(api_key=API_KEY)
         self.access_token = None
-        # State
-        self.positions = {}  # key -> dict(symbol, side, entry_price, qty, target_price, stop_loss_price, entry_time, order_id)
+        self.positions = {}
         self.pending_orders = []
         self.bot_status = "Initializing"
         self.total_trades_today = 0
         self.win_rate = 0.0
 
-        # Strategy params
-        self.target_profit_pct = 1.0   # default target for display; execution uses ATR-based targets/trailing
-        self.stop_loss_pct = 0.5       # display only; execution uses ATR-based SL
-        self.trailing_start_R = 0.5    # start trailing after 0.5R
-        self.trailing_atr_mult = 1.0   # trail by 1x 5m ATR
+        self.target_profit_pct = 1.0
+        self.stop_loss_pct = 0.5
+        self.trailing_start_R = 0.5
+        self.trailing_atr_mult = 1.0
 
-        # Risk
         self.account_equity = DEFAULT_ACCOUNT_EQUITY
         self.risk_per_trade = RISK_PER_TRADE
         self.max_positions = self._max_positions_for_equity(self.account_equity)
         self.max_notional_pct = MAX_NOTIONAL_PCT
 
-        # Universe
         self._cache_lock = threading.Lock()
         self._last_cache_update = None
         self.daily_stock_list = []
         self.universe_version = None
-        self.universe_features = pd.DataFrame()  # snapshot with ATR%, Turnover, Score
+        self.universe_features = pd.DataFrame()
 
-        # Threads / scheduling
         self._scheduler_started = False
-
         logger.info("Bot initialized.")
 
-    # ========= Session / Auth =========
+    # ========= Auth (CLI) =========
     def authenticate_cli(self):
-        """
-        Simple CLI authentication using request_token pasted by the user.
-        Intended for local runs with an interactive terminal.
-        """
         print("\n🔐 ZERODHA PERSONAL API AUTHENTICATION")
         print("=" * 50)
         try:
@@ -156,10 +135,7 @@ class AutoTradingBot:
             print(f"❌ Could not build login URL. Check API key/secret: {e}")
             return False
 
-        print("\n📝 Step 2: After login, copy the request_token from the redirected URL")
-        print("Example: https://your-redirect-url/?request_token=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        print("\n🎯 Step 3: Copy ONLY the 32-character request_token:")
-
+        print("\n📝 After login, copy the 32-char request_token from the redirected URL")
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
             try:
@@ -167,67 +143,64 @@ class AutoTradingBot:
             except Exception:
                 print("❌ Non-interactive environment detected; use the HTTP endpoint instead.")
                 return False
-
             if len(request_token) != 32:
-                print("❌ Invalid request_token! It should be exactly 32 characters.")
+                print("❌ Invalid request_token length.")
                 if attempt < max_attempts:
                     continue
                 return False
-
             try:
                 print("🔄 Generating access token...")
                 sess = self.kite.generate_session(request_token, api_secret=API_SECRET)
                 self.access_token = sess["access_token"]
                 self.kite.set_access_token(self.access_token)
-
-                with open('access_token.txt', 'w') as f:
+                with open("access_token.txt", "w") as f:
                     f.write(f"{self.access_token}\n{now_ist().isoformat()}")
-
                 print("✅ Authentication successful!")
-
-                # Optional: fetch profile and margins to confirm connectivity
                 try:
-                    profile = self.kite.profile()
                     margins = self.kite.margins()
                     bal = float(margins["equity"]["available"]["live_balance"])
-                    print(f"👤 Welcome: {profile.get('user_name','?')}")
-                    print(f"💰 Available Balance: ₹{bal:,.2f}")
                     self.account_equity = max(bal, DEFAULT_ACCOUNT_EQUITY)
                     self.max_positions = self._max_positions_for_equity(self.account_equity)
                 except Exception as e:
-                    print(f"⚠️ Auth OK but couldn't fetch profile/margins: {e}")
-
+                    print(f"⚠️ Auth OK but couldn't fetch margins: {e}")
                 self.bot_status = "Active"
                 return True
-
             except Exception as e:
-                msg = str(e).lower()
                 print(f"❌ Attempt {attempt} failed: {e}")
-                if "invalid" in msg or "expired" in msg:
-                    print("💡 Token expired or invalid. Get a fresh token and try again.")
-                    if attempt < max_attempts:
-                        try:
-                            print(f"🔗 New login URL: {self.kite.login_url()}")
-                        except Exception:
-                            pass
-                else:
-                    print("💡 Check internet connectivity and API credentials.")
-
                 if attempt == max_attempts:
                     return False
-
         return False
 
+    def authenticate_with_request_token(self, request_token: str):
+        try:
+            sess = self.kite.generate_session(request_token, api_secret=API_SECRET)
+            self.access_token = sess["access_token"]
+            self.kite.set_access_token(self.access_token)
+            self.bot_status = "Active"
+            with open("access_token.txt", "w") as f:
+                f.write(f"{self.access_token}\n{now_ist().isoformat()}")
+            try:
+                margins = self.kite.margins()
+                bal = float(margins["equity"]["available"]["live_balance"])
+                self.account_equity = max(bal, DEFAULT_ACCOUNT_EQUITY)
+                self.max_positions = self._max_positions_for_equity(self.account_equity)
+            except Exception as e:
+                logger.warning(f"Profile/margins fetch issue after auth: {e}")
+            return True
+        except Exception as e:
+            logger.error(f"Authentication failed: {e}")
+            self.bot_status = "Auth Failed"
+            return False
 
     def load_saved_token(self):
         try:
             with open("access_token.txt", "r") as f:
-                first_line = f.readline().strip()
-                if not first_line:
+                token = f.readline().strip()
+                if not token:
                     return False
-                self.kite.set_access_token(first_line)
-                self.access_token = first_line
-                self.bot_status = "Active"
+            self.kite.set_access_token(token)
+            self.access_token = token
+            self.bot_status = "Active"
             try:
                 self.kite.profile()
             except Exception:
@@ -245,47 +218,18 @@ class AutoTradingBot:
             return True
         except Exception:
             return False
+
     def schedule_auth_checks(self):
         schedule.every().day.at("08:30").do(self.check_and_mark_auth)
 
     def check_and_mark_auth(self):
         if not self.is_token_valid():
             self.bot_status = "Auth Required"
-        # Clear in-memory token to prevent accidental calls
             self.access_token = None
 
-    
-
-
-
-    def get_account_balance(self, force=False, safety_buffer=0.0):
-        """
-        Fetch available equity balance from Zerodha and return usable cash after safety buffer.
-        safety_buffer: fraction to reserve (e.g., 0.05 = keep 5% aside).
-        """
-        now = now_ist()
-        if not force and hasattr(self, "_last_balance_at") and (now - self._last_balance_at).seconds < 20 and hasattr(self, "_last_balance_value"):
-            # Return cached within 20s to avoid rate limits
-            bal = self._last_balance_value
-        else:
-            try:
-                margins = self.kite.margins()
-                bal = float(margins["equity"]["available"]["live_balance"])
-                self._last_balance_value = bal
-                self._last_balance_at = now
-            except Exception as e:
-                # Fallback to last known or configured default
-                bal = getattr(self, "_last_balance_value", DEFAULT_ACCOUNT_EQUITY)
-        usable = max(0.0, bal * (1.0 - safety_buffer))
-        # Keep internal equity heuristic updated
-        self.account_equity = max(bal, DEFAULT_ACCOUNT_EQUITY)
-        self.max_positions = self._max_positions_for_equity(self.account_equity)
-        return usable
-
-
-    # ========= Universe Builder =========
+    # ========= Data =========
     def _fetch_eod_batch(self, tickers, period="12mo"):
-        data = yf.download(tickers, period=period, interval="1d", group_by='ticker', auto_adjust=False, threads=True, progress=False)
+        data = yf.download(tickers, period=period, interval="1d", group_by="ticker", auto_adjust=False, threads=True, progress=False)
         frames = []
         for t in tickers:
             try:
@@ -299,7 +243,6 @@ class AutoTradingBot:
         return pd.concat(frames, ignore_index=True)
 
     def _compute_features(self, df):
-        # df: Date, Open, High, Low, Close, Adj Close, Volume, Symbol
         def featurize(g):
             g = g.sort_values("Date").copy()
             tr1 = g["High"] - g["Low"]
@@ -315,7 +258,6 @@ class AutoTradingBot:
             return g
         df = df.groupby("Symbol", group_keys=False).apply(featurize)
         last = df.sort_values(["Symbol","Date"]).groupby("Symbol").tail(1)
-        # ranks
         last["ATRpct_rank"] = last["ATR_pct"].rank(pct=True)
         last["Turn_rank"] = last["MedTurn20"].rank(pct=True)
         last["Mom_rank"] = last["Ret20"].rank(pct=True)
@@ -334,13 +276,11 @@ class AutoTradingBot:
                 feats = self._compute_features(eod)
                 feats = feats[(feats["MedTurn20"] > 2e7) & (feats["Close"] >= 50)]
                 feats = feats.sort_values("Score", ascending=False).head(UNIVERSE_SIZE).reset_index(drop=True)
-                # Session hysteresis (simple)
                 prev = set(self.daily_stock_list)
                 ranked = list(feats["Symbol"].values)
                 add = [s for i, s in enumerate(ranked) if (s not in prev) and (i < HYST_ADD_RANK)]
                 keep = [s for i, s in enumerate(ranked) if (s in prev) or (i < HYST_DROP_RANK)]
                 session_list = list(dict.fromkeys(keep + add))[:UNIVERSE_SIZE]
-                # Convert to NSE trading symbols (drop .NS)
                 self.daily_stock_list = [s.replace(".NS","") for s in session_list]
                 self.universe_features = feats.copy()
                 self.universe_version = now_ist().strftime("%Y-%m-%d")
@@ -362,21 +302,18 @@ class AutoTradingBot:
                 self.update_daily_stock_list()
                 break
 
-    # ========= Data Fetch / Indicators =========
-    def fetch_bars(self, symbol, interval='5m', days=2):
+    def fetch_bars(self, symbol, interval="5m", days=2):
         try:
             yf_symbol = f"{symbol}.NS"
             df = yf.download(yf_symbol, period=f"{days}d", interval=interval, auto_adjust=False, progress=False)
             if df.empty:
                 return None
             df = df.rename(columns=str.lower).reset_index()
-            # ensure columns: open, high, low, close, volume
             return df
         except Exception:
             return None
 
     def compute_vwap(self, df):
-        # df with close, volume
         pv = (df["close"] * df["volume"]).cumsum()
         vv = (df["volume"]).cumsum().replace(0, np.nan)
         return pv / vv
@@ -385,7 +322,6 @@ class AutoTradingBot:
         return series.ewm(span=n, adjust=False).mean()
 
     def get_stock_price(self, symbol):
-        # Prefer broker LTP if authenticated; else yfinance fast_info
         try:
             if self.access_token:
                 q = self.kite.quote([f"NSE:{symbol}"])
@@ -404,10 +340,10 @@ class AutoTradingBot:
         except Exception:
             return None
 
-    # ========= Multi-timeframe confirmation =========
+    # ========= Signal Generation =========
     def mtf_confirmation(self, symbol):
-        data_30 = self.fetch_bars(symbol, interval='30m', days=10)
-        data_5 = self.fetch_bars(symbol, interval='5m', days=2)
+        data_30 = self.fetch_bars(symbol, interval="30m", days=10)
+        data_5 = self.fetch_bars(symbol, interval="5m", days=2)
         if data_30 is None or data_5 is None or len(data_30) < 40 or len(data_5) < 40:
             return None
         ema20_30 = self.ema(data_30["close"], 20)
@@ -416,25 +352,21 @@ class AutoTradingBot:
         price_30 = data_30["close"].iloc[-1]
         above_ema_30 = price_30 > ema20_30.iloc[-1]
         below_ema_30 = price_30 < ema20_30.iloc[-1]
-
         vwap_5 = self.compute_vwap(data_5)
         price_5 = data_5["close"].iloc[-1]
         above_vwap = price_5 > vwap_5.iloc[-1]
         below_vwap = price_5 < vwap_5.iloc[-1]
-
         return {
             "long_ok": slope_up and above_ema_30 and above_vwap,
             "short_ok": slope_down and below_ema_30 and below_vwap,
             "data_5": data_5
         }
 
-    # ========= Signal Generation (both directions) =========
     def generate_trade_signal(self, symbol):
         mtf = self.mtf_confirmation(symbol)
         if mtf is None:
             return None
         data_5 = mtf["data_5"]
-        # 5m ATR(14)
         tr = pd.DataFrame({
             "hl": data_5["high"] - data_5["low"],
             "hc": (data_5["high"] - data_5["close"].shift()).abs(),
@@ -448,7 +380,6 @@ class AutoTradingBot:
         prev_24_high = data_5["high"].rolling(24).max().iloc[-2]
         prev_24_low = data_5["low"].rolling(24).min().iloc[-2]
 
-        # Daily ATR% context if available
         daily_atr_pct = 1.0
         try:
             feats = self.universe_features
@@ -457,8 +388,8 @@ class AutoTradingBot:
                 daily_atr_pct = float(row["ATR_pct"].values)
         except Exception:
             pass
-        margin = max(0.0025, 0.0025 * (daily_atr_pct / 1.0))  # ~0.25%
 
+        margin = max(0.0025, 0.0025 * (daily_atr_pct / 1.0))
         long_break = last_close > prev_24_high * (1 + margin)
         short_break = last_close < prev_24_low * (1 - margin)
 
@@ -469,28 +400,6 @@ class AutoTradingBot:
         return None
 
     # ========= Sizing / Orders =========
-
-    def execute_trade(self, symbol, atr5, signal_price):
-        # Pre-trade balance check
-        usable_cash = self.get_account_balance(force=False, safety_buffer=0.05)  # keep 5% buffer
-        if usable_cash < 2000:
-            logger.info(f"Insufficient usable cash ({usable_cash:.2f}); skipping {symbol}")
-            return False
-
-        # Compute stop distance and quantity
-        stop_distance = atr5
-        if stop_distance <= 0:
-            return False
-
-        # Notional cap against current usable cash, not static equity
-        max_notional = usable_cash * self.max_notional_pct
-        qty = int(max(0, np.floor((self.account_equity * self.risk_per_trade) / stop_distance)))
-        if qty * signal_price > max_notional:
-            qty = int(max_notional // signal_price)
-        if qty < 1:
-            logger.info(f"Position size too small (qty={qty}); skipping {symbol}")
-            return False
-
     def _max_positions_for_equity(self, eq):
         if eq <= 12000:
             return MAX_POSITIONS_10K
@@ -500,12 +409,10 @@ class AutoTradingBot:
             return MAX_POSITIONS_30K
 
     def calculate_qty(self, price, stop_distance):
-        # Risk in rupees
         risk_rupees = self.account_equity * self.risk_per_trade
         if stop_distance <= 0:
             return 0
         qty = int(max(0, np.floor(risk_rupees / stop_distance)))
-        # Notional cap
         max_notional = self.account_equity * self.max_notional_pct
         if qty * price > max_notional:
             qty = int(max_notional // price)
@@ -513,6 +420,9 @@ class AutoTradingBot:
 
     def place_order(self, symbol, quantity, is_buy):
         try:
+            if self.bot_status == "Auth Required" or not self.access_token:
+                logger.warning("Auth required; cannot place order.")
+                return None
             if not is_market_open_now():
                 logger.warning("Market closed; cannot place order.")
                 return None
@@ -535,11 +445,13 @@ class AutoTradingBot:
     # ========= Execute strategy =========
     def execute_strategy(self, symbol, direction, signal_price, atr5):
         try:
+            if self.bot_status == "Auth Required" or not self.access_token:
+                logger.info("Auth required; execute_strategy skipped.")
+                return False
             ist_now = now_ist()
             if ist_now.time() >= datetime_time(14,45):
                 logger.info(f"Skipping late entry on {symbol}")
                 return False
-            # Balance
             try:
                 margins = self.kite.margins()
                 bal = margins["equity"]["available"]["live_balance"]
@@ -547,9 +459,6 @@ class AutoTradingBot:
                 self.max_positions = self._max_positions_for_equity(self.account_equity)
             except Exception:
                 pass
-
-            # Initial stop and target
-            # Use 1x 5m ATR for stop; target as 1.5R for display; trailing will manage exits
             stop_distance = atr5
             if stop_distance <= 0:
                 return False
@@ -597,8 +506,7 @@ class AutoTradingBot:
             cur = self.get_stock_price(symbol)
             if cur is None:
                 continue
-            # Get 5m ATR
-            data_5 = self.fetch_bars(symbol, interval='5m', days=1)
+            data_5 = self.fetch_bars(symbol, interval="5m", days=1)
             if data_5 is None or len(data_5) < 20:
                 continue
             tr = pd.DataFrame({
@@ -610,10 +518,8 @@ class AutoTradingBot:
             if np.isnan(atr5) or atr5 <= 0:
                 continue
 
-            # compute R from initial stop
-            init_stop = pos["stop_loss_price"]
             if side == "BUY":
-                R = (pos["target_price"] - entry)  # not exact, but used to trigger trailing after 0.5R
+                R = (pos["target_price"] - entry)
                 move = (cur - entry)
                 start_trailing = move >= self.trailing_start_R * abs(R)
                 if not start_trailing:
@@ -634,6 +540,9 @@ class AutoTradingBot:
 
     # ========= Monitor and exit =========
     def monitor_positions(self):
+        if self.bot_status == "Auth Required" or not self.access_token:
+            logger.info("Auth required; monitor_positions skipped.")
+            return
         if not self.positions:
             return
         self.update_trailing_stops()
@@ -648,7 +557,6 @@ class AutoTradingBot:
                 cur = self.get_stock_price(symbol)
                 if cur is None:
                     continue
-
                 if side == "BUY":
                     pnl_amount = (cur - entry) * qty
                     target_hit = cur >= pos["target_price"]
@@ -657,10 +565,8 @@ class AutoTradingBot:
                     pnl_amount = (entry - cur) * qty
                     target_hit = cur <= pos["target_price"]
                     stop_hit = cur >= pos["stop_loss_price"]
-
                 ist_now = now_ist()
                 force_exit = ist_now.time() >= datetime_time(15, 10)
-
                 if target_hit or stop_hit or force_exit:
                     exit_is_buy = (side == "SHORT")
                     exit_order_id = self.place_order(symbol, qty, exit_is_buy)
@@ -672,7 +578,6 @@ class AutoTradingBot:
                     logger.info(f"{side} {symbol} LTP={round2(cur)} PnL={round2(pnl_amount)} stop={pos['stop_loss_price']} target={pos['target_price']}")
             except Exception as e:
                 logger.error(f"Monitor error {key}: {e}")
-
         for k in to_close:
             if k in self.positions:
                 del self.positions[k]
@@ -682,23 +587,22 @@ class AutoTradingBot:
     # ========= Scanning =========
     def scan_for_opportunities(self):
         logger.info("Scan started.")
+        if self.bot_status == "Auth Required" or not self.access_token:
+            logger.info("Auth required; scan skipped.")
+            return
         if not is_market_open_now():
             logger.info("Market closed; skipping scan.")
             return
         if len(self.positions) >= self.max_positions:
             logger.info("Max positions reached; skipping new entries.")
             return
-
         self.maybe_refresh_daily_stock_list()
         with self._cache_lock:
             watchlist = list(self.daily_stock_list)
-
         if not watchlist:
             logger.info("Watchlist empty; skipping.")
             return
-
         for symbol in watchlist:
-            # Skip if already holding symbol
             if any(p["symbol"] == symbol for p in self.positions.values()):
                 continue
             sig = self.generate_trade_signal(symbol)
@@ -707,7 +611,7 @@ class AutoTradingBot:
                 ok = self.execute_strategy(symbol, direction, last_close, atr5)
                 if ok:
                     time.sleep(2)
-                    break  # one trade per scan
+                    break
 
     # ========= Persistence =========
     def save_positions(self):
@@ -735,7 +639,8 @@ class AutoTradingBot:
 
     # ========= Scheduling =========
     def start_schedulers(self):
-        if self._scheduler_started: return
+        if self._scheduler_started:
+            return
         schedule.clear()
         schedule.every(15).minutes.do(self.run_trading_cycle)
         schedule.every(15).minutes.do(self.scan_for_opportunities)
@@ -745,11 +650,11 @@ class AutoTradingBot:
 
     def run_trading_cycle(self):
         try:
+            if self.bot_status == "Auth Required" or not self.access_token:
+                logger.info("Auth required; trading cycle skipped.")
+                return
             self.bot_status = "Running"
             if not is_market_open_now():
-                if self.bot_status == "Auth Required" or not self.access_token:
-                    logger.info("Auth required; trading cycle skipped.")
-                return
                 if self.positions:
                     self.monitor_positions()
                 self.bot_status = "Market Closed"
@@ -763,56 +668,10 @@ class AutoTradingBot:
             logger.error(f"Cycle error: {e}")
             self.bot_status = f"Error: {e}"
 
-
-    #==================== Keep-alive thread ====================
-    def keep_alive_ping(interval_seconds=300, timeout_seconds=5, url_env_var="RENDER_PUBLIC_URL"):
-        session = _make_session()
-        base_url = os.environ.get(url_env_var)
-        if not base_url:
-            logger.warning(f"{url_env_var} not set; keep-alive disabled.")
-            return
-
-        base_url = base_url.rstrip("/")
-        health_url = f"{base_url}/health"
-        logger.info(f"Keep-alive ping started: {health_url} every {interval_seconds}s")
-
-        while not STOP_EVENT.is_set():
-            try:
-                time.sleep(interval_seconds)
-                resp = session.get(health_url, timeout=timeout_seconds)
-                if resp.status_code == 200:
-                    logger.info("Keep-alive OK")
-            except Exception as e:
-                logger.warning(f"Keep-alive error: {e}")
-
-
-    def start_keep_alive_thread(interval_seconds=300, timeout_seconds=5, url_env_var="RENDER_PUBLIC_URL"):
-        t = threading.Thread(
-            target=keep_alive_ping,
-            kwargs=dict(
-                interval_seconds=interval_seconds,
-                timeout_seconds=timeout_seconds,
-                url_env_var=url_env_var
-            ),
-            daemon=True
-        )
-        t.start()
-        return t
-
-
-    
-    def _shutdown(*args):
-        STOP_EVENT.set()
-
-
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
-
-#Global bot instance
+# Global bot instance
 bot = AutoTradingBot()
 
-
-#==================== Flask Routes ====================
+# ==================== Flask Routes ====================
 @app.route("/")
 def home():
     status = "Active" if bot.access_token else "Inactive"
@@ -833,13 +692,13 @@ def home():
 @app.route("/health")
 def health():
     return jsonify({
-    "status": "healthy",
-    "timestamp": now_ist().strftime("%Y-%m-%d %H:%M:%S IST"),
-    "flask_working": True,
-    "bot_active": bot.access_token is not None,
-    "positions_count": len(bot.positions),
-    "market_open": is_market_open_now(),
-    "features": ["BUY+SHORT","VWAP","EMA20 MTF","ATR breakout","ATR trailing","MIS exits"]
+        "status": "healthy",
+        "timestamp": now_ist().strftime("%Y-%m-%d %H:%M:%S IST"),
+        "flask_working": True,
+        "bot_active": bot.access_token is not None,
+        "positions_count": len(bot.positions),
+        "market_open": is_market_open_now(),
+        "features": ["BUY+SHORT","VWAP","EMA20 MTF","ATR breakout","ATR trailing","MIS exits"]
     })
 
 @app.route("/session/exchange", methods=["POST"])
@@ -858,11 +717,7 @@ def initialize():
     bot.load_positions()
     bot.update_daily_stock_list()
     bot.start_schedulers()
-    return jsonify({
-        "success": True, 
-        "universe_size": len(bot.daily_stock_list), 
-        "version": bot.universe_version
-    })
+    return jsonify({"success": True, "universe_size": len(bot.daily_stock_list), "version": bot.universe_version})
 
 @app.route("/api/universe", methods=["GET"])
 def api_universe():
@@ -883,11 +738,7 @@ def api_universe():
 @app.route("/api/universe/rebuild", methods=["POST","GET"])
 def api_universe_rebuild():
     bot.update_daily_stock_list()
-    return jsonify({
-        "success": True, 
-        "version": bot.universe_version, 
-        "session_universe": bot.daily_stock_list
-    })
+    return jsonify({"success": True, "version": bot.universe_version, "session_universe": bot.daily_stock_list})
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
@@ -899,12 +750,6 @@ def api_status():
         available_cash = 0
         access_valid = False
     auth_required = not access_valid
-    return jsonify({
-        "balance": available_cash,
-        "access_token_valid": access_valid,
-        "auth_required": auth_required,
-    })
-
 
     positions_list = []
     for pos in bot.positions.values():
@@ -929,6 +774,7 @@ def api_status():
         })
 
     daily_pnl = sum(p["pnl"] for p in positions_list) if positions_list else 0.0
+
     return jsonify({
         "balance": available_cash,
         "positions": positions_list,
@@ -940,18 +786,19 @@ def api_status():
         "daily_pnl": daily_pnl,
         "total_trades": bot.total_trades_today,
         "win_rate": bot.win_rate,
-        "access_token_valid": bot.access_token is not None,
+        "access_token_valid": access_valid,
+        "auth_required": auth_required,
         "risk_per_trade": bot.risk_per_trade,
         "max_positions": bot.max_positions,
         "last_update": now_ist().strftime("%H:%M:%S")
     })
+
 @app.route("/api/close-position", methods=["POST"])
 def close_position():
     data = request.get_json(force=True)
     symbol = data.get("symbol")
     if not symbol:
         return jsonify({"success": False, "message": "Symbol required"}), 400
-# Find open position by symbol
     found_key = None
     pos = None
     for k, p in bot.positions.items():
@@ -961,7 +808,6 @@ def close_position():
             break
     if not found_key:
         return jsonify({"success": False, "message": "Position not found"}), 404
-
     is_buy_to_close = (pos["side"] == "SHORT")
     oid = bot.place_order(symbol, pos["quantity"], is_buy_to_close)
     if oid:
@@ -969,6 +815,7 @@ def close_position():
         bot.save_positions()
         return jsonify({"success": True, "message": f"Closed {symbol}"})
     return jsonify({"success": False, "message": "Exit order failed"}), 500
+
 @app.route("/api/refresh-token", methods=["POST"])
 def refresh_access_token():
     data = request.get_json(force=True)
@@ -980,7 +827,6 @@ def refresh_access_token():
         bot.access_token = new_token
         with open("access_token.txt", "w") as f:
             f.write(f"{new_token}\n{now_ist().isoformat()}")
-    # verify
         bot.kite.profile()
         return jsonify({"success": True, "message": "Token updated"})
     except Exception as e:
@@ -1007,25 +853,15 @@ def control(action):
 
 @app.route("/backtest/run", methods=["POST"])
 def backtest_run():
-    # Minimal placeholder: strategy backtest is non-trivial with intraday slippage.
-    # Returns CSV path after simulated runs (randomized outcome placeholder).
-    start = now_ist().date() - timedelta(days=250)
-    end = now_ist().date()
     trades = []
     equity = DEFAULT_ACCOUNT_EQUITY
-    # Dummy: record 20 sessions with small expectancy
     for i in range(20):
-        pnl = np.random.normal(loc=equity * 0.002, scale=equity * 0.004) # illustrative
+        pnl = np.random.normal(loc=equity * 0.002, scale=equity * 0.004)
         equity += pnl
         trades.append({"day": i+1, "pnl": round2(pnl), "equity": round2(equity)})
     out_csv = "backtest_pnl.csv"
     pd.DataFrame(trades).to_csv(out_csv, index=False)
-    return jsonify({
-        "success": True, 
-        "final_equity": round2(equity), 
-        "trades": len(trades), 
-        "csv": "/backtest/csv"
-    })
+    return jsonify({"success": True, "final_equity": round2(equity), "trades": len(trades), "csv": "/backtest/csv"})
 
 @app.route("/backtest/csv", methods=["GET"])
 def backtest_csv():
@@ -1034,34 +870,20 @@ def backtest_csv():
         return jsonify({"success": False, "message": "No CSV"}), 404
     return send_file(fname, as_attachment=True)
 
-from flask import redirect, url_for
-import hashlib
-import urllib.parse
-
-# New config
-FRONTEND_URL = os.environ.get("https://trading-app-phi-liart.vercel.app/", "")  # e.g., https://your-vercel-app.vercel.app
-
+# ==================== OAuth routes ====================
 def _kite_login_url(api_key: str, redirect_params: dict | None = None):
     base = "https://kite.zerodha.com/connect/login?v=3"
     qp = {"api_key": api_key}
-    # Optional: pass opaque redirect_params that Zerodha will append back to redirect URL
-    # Value must be URL-encoded query string, e.g., some=X&more=Y
     if redirect_params:
         qp["redirect_params"] = urllib.parse.quote_plus(urllib.parse.urlencode(redirect_params))
     return f"{base}&{urllib.parse.urlencode(qp)}"
 
 @app.route("/auth/login", methods=["GET"])
 def auth_login():
-    """
-    Redirect user to Zerodha login. Optionally accept `state` and `next` query params.
-    - state: opaque string echoed back via redirect_params (optional)
-    - next: frontend path to return to after success/failure (optional)
-    """
     if not API_KEY or not API_SECRET:
         return jsonify({"success": False, "message": "Server missing API creds"}), 500
     state = request.args.get("state", "")
     next_path = request.args.get("next", "/")
-    # include next in redirect_params so we get it back at callback if needed
     rp = {}
     if state:
         rp["state"] = state
@@ -1072,115 +894,108 @@ def auth_login():
 
 @app.route("/auth/callback", methods=["GET"])
 def auth_callback():
-    """
-    Zerodha redirects here with ?request_token=...&status=success.
-    Exchange for access_token and persist. Then redirect to frontend.
-    """
     req_token = request.args.get("request_token")
-    status_param = request.args.get("status")  # typically 'success'
-    # Zerodha echoes redirect_params as individual query params if used
     next_path = request.args.get("next", "/")
     state = request.args.get("state", "")
-
     if not req_token or len(req_token) < 10:
-        return _finish_auth_redirect(False, "Missing or invalid request_token", next_path, state)
-
+        return _finish_auth_redirect(False, "missing_or_invalid_request_token", next_path, state)
     try:
-        # Exchange request_token for access_token
         sess = bot.kite.generate_session(req_token, api_secret=API_SECRET)
         access_token = sess["access_token"]
         bot.kite.set_access_token(access_token)
         bot.access_token = access_token
-        # Persist to file (keeping existing convention)
         with open("access_token.txt", "w") as f:
             f.write(f"{access_token}\n{now_ist().isoformat()}")
-        # Optional sanity calls and equity refresh
         try:
-            profile = bot.kite.profile()
             margins = bot.kite.margins()
             bal = float(margins["equity"]["available"]["live_balance"])
             bot.account_equity = max(bal, DEFAULT_ACCOUNT_EQUITY)
             bot.max_positions = bot._max_positions_for_equity(bot.account_equity)
         except Exception:
             pass
-        # Optionally start schedulers after auth
         try:
             bot.start_schedulers()
         except Exception:
             pass
+        bot.bot_status = "Active"
         return _finish_auth_redirect(True, "ok", next_path, state)
     except Exception as e:
-        # Log and fail
         logger.error(f"/auth/callback exchange failed: {e}")
         return _finish_auth_redirect(False, "exchange_failed", next_path, state)
 
 def _finish_auth_redirect(success: bool, code: str, next_path: str, state: str):
-    """
-    Redirect back to frontend with query flags:
-      ?auth=success|fail&code=<code>&state=<state>
-    """
-    front = FRONTEND_URL.rstrip("/")
+    front = FRONTEND_URL
     if not front:
-        # Fallback JSON if FRONTEND_URL not set
         return jsonify({"success": success, "code": code})
-    # Build redirect URL
-    qp = {
-        "auth": "success" if success else "fail",
-        "code": code
-    }
+    qp = {"auth": "success" if success else "fail", "code": code}
     if state:
         qp["state"] = state
-    url = f"{front}{next_path if next_path.startswith('/') else '/'}{'' if '?' in next_path else ''}"
+    url = f"{front}{next_path if next_path.startswith('/') else '/'}"
     sep = "&" if "?" in url else "?"
     url = url + sep + urllib.parse.urlencode(qp)
     return redirect(url, code=302)
 
-@app.route("/auth/status", methods=["GET"])
-def auth_status():
-    return jsonify({
-        "authenticated": bot.access_token is not None,
-        "bot_status": bot.bot_status,
-        "market_open": is_market_open_now()
-    })
+# ==================== App main ====================
+def keep_alive_ping(interval_seconds=300, timeout_seconds=5, url_env_var="RENDER_PUBLIC_URL"):
+    session = _make_session()
+    base_url = os.environ.get(url_env_var)
+    if not base_url:
+        logger.warning(f"{url_env_var} not set; keep-alive disabled.")
+        return
+    base_url = base_url.rstrip("/")
+    health_url = f"{base_url}/health"
+    logger.info(f"Keep-alive ping started: {health_url} every {interval_seconds}s")
+    while not STOP_EVENT.is_set():
+        try:
+            time.sleep(interval_seconds)
+            resp = session.get(health_url, timeout=timeout_seconds)
+            if resp.status_code == 200:
+                logger.info("Keep-alive OK")
+        except Exception as e:
+            logger.warning(f"Keep-alive error: {e}")
 
-@app.route("/auth/logout", methods=["POST"])
-def auth_logout():
-    try:
-        bot.access_token = None
-        # Soft clear; avoid calling kite.invalidate because not all plans support
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+def start_keep_alive_thread(interval_seconds=300, timeout_seconds=5, url_env_var="RENDER_PUBLIC_URL"):
+    t = threading.Thread(target=keep_alive_ping, kwargs=dict(
+        interval_seconds=interval_seconds,
+        timeout_seconds=timeout_seconds,
+        url_env_var=url_env_var
+    ), daemon=True)
+    t.start()
+    return t
 
-    #==================== App main ====================
-    if __name__ == "__main__":
-        print("Intraday Trading Bot (VWAP+ATR+MTF)")
-        print("Order Exec: Zerodha | Data: Yahoo Finance (demo)")
-        print("Risk/trade 4% | MTF EMA20 + VWAP | ATR breakout & trailing")
-        start_keep_alive_thread(interval_seconds=int(os.environ.get("KEEPALIVE_SEC","120")))
-        # Rapid monitor thread
-        def rapid_monitor():
-            print("Rapid monitor thread started")
-            while True:
-                try:
-                    if bot.positions:
-                        bot.monitor_positions()
-                except Exception as e:
-                    print(f"[Monitor Thread Error]: {e}")
-                time.sleep(20)
-        threading.Thread(target=rapid_monitor, daemon=True).start()
-        # Scheduler loop thread
-        def run_scheduled_tasks():
-            print("Scheduler loop started")
-            while True:
-                try:
-                    if bot.access_token:
-                        schedule.run_pending()
-                except Exception as e:
-                    print(f"[Scheduled Task Error]: {e}")
-                time.sleep(5)
-        threading.Thread(target=run_scheduled_tasks, daemon=True).start()
+def _shutdown(*args):
+    STOP_EVENT.set()
 
-        # Flask
-        port = int(os.environ.get("PORT", "10000"))
-        app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+signal.signal(signal.SIGINT, _shutdown)
+signal.signal(signal.SIGTERM, _shutdown)
+
+if __name__ == "__main__":
+    print("Intraday Trading Bot (VWAP+ATR+MTF)")
+    print("Order Exec: Zerodha | Data: Yahoo Finance (demo)")
+    print("Risk/trade 4% | MTF EMA20 + VWAP | ATR breakout & trailing")
+    start_keep_alive_thread(interval_seconds=int(os.environ.get("KEEPALIVE_SEC","120")))
+
+    def rapid_monitor():
+        print("Rapid monitor thread started")
+        while True:
+            try:
+                if bot.positions:
+                    bot.monitor_positions()
+            except Exception as e:
+                print(f"[Monitor Thread Error]: {e}")
+            time.sleep(20)
+    threading.Thread(target=rapid_monitor, daemon=True).start()
+
+    def run_scheduled_tasks():
+        print("Scheduler loop started")
+        while True:
+            try:
+                if bot.access_token:
+                    schedule.run_pending()
+            except Exception as e:
+                print(f"[Scheduled Task Error]: {e}")
+            time.sleep(5)
+    threading.Thread(target=run_scheduled_tasks, daemon=True).start()
+
+    port = int(os.environ.get("PORT", "10000"))
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
