@@ -354,7 +354,7 @@ class AutoTradingBot:
         ema20_30 = self.ema(data_30["close"], 20)
 
         # Explicit scalar NaN check for last 2 points
-        if ema20_30.iloc[-2:].isna().any()::
+        if ema20_30.iloc[-2:].isna().any():
             logger.info(f"{symbol}: EMA20 last two bars contain NaN")
             return None
 
