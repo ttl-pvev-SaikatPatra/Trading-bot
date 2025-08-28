@@ -141,33 +141,83 @@ class AutoTradingBot:
         logger.info("Bot initialized.")
 
     # ========= Session / Auth =========
-    def authenticate_with_request_token(self, request_token: str):
+    def authenticate_cli(self):
+        """
+        Simple CLI authentication using request_token pasted by the user.
+        Intended for local runs with an interactive terminal.
+        """
+        print("\n🔐 ZERODHA PERSONAL API AUTHENTICATION")
+        print("=" * 50)
         try:
-            sess = self.kite.generate_session(request_token, api_secret=API_SECRET)
-            self.access_token = sess["access_token"]
-            self.kite.set_access_token(self.access_token)
-            self.bot_status = "Active"
-            # Persist
-            ts = now_ist().replace(microsecond=0).isoformat()
-            with open("access_token.txt", "w") as f:
-                f.write(f"{self.access_token}\n{ts}")
-            logger.info("Authentication successful; token saved.")
-            # Test profile
-            try:
-                profile = self.kite.profile()
-                margins = self.kite.margins()
-                bal = margins["equity"]["available"]["live_balance"]
-                logger.info(f"Welcome: {profile.get('user_name','?')} | Balance: ₹{bal:,.2f}")
-                # update equity heuristic
-                self.account_equity = max(bal, DEFAULT_ACCOUNT_EQUITY)
-                self.max_positions = self._max_positions_for_equity(self.account_equity)
-            except Exception as e:
-                logger.warning(f"Profile/margins fetch issue after auth: {e}")
-            return True
+            login_url = self.kite.login_url()
+            print("🔗 Step 1: Visit this URL to login:")
+            print(login_url)
         except Exception as e:
-            logger.error(f"Authentication failed: {e}")
-            self.bot_status = "Auth Failed"
+            print(f"❌ Could not build login URL. Check API key/secret: {e}")
             return False
+
+        print("\n📝 Step 2: After login, copy the request_token from the redirected URL")
+        print("Example: https://your-redirect-url/?request_token=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+        print("\n🎯 Step 3: Copy ONLY the 32-character request_token:")
+
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                request_token = input(f"\nEnter request_token (Attempt {attempt}/{max_attempts}): ").strip()
+            except Exception:
+                print("❌ Non-interactive environment detected; use the HTTP endpoint instead.")
+                return False
+
+            if len(request_token) != 32:
+                print("❌ Invalid request_token! It should be exactly 32 characters.")
+                if attempt < max_attempts:
+                    continue
+                return False
+
+            try:
+                print("🔄 Generating access token...")
+                sess = self.kite.generate_session(request_token, api_secret=API_SECRET)
+                self.access_token = sess["access_token"]
+                self.kite.set_access_token(self.access_token)
+
+                with open('access_token.txt', 'w') as f:
+                    f.write(f"{self.access_token}\n{now_ist().isoformat()}")
+
+                print("✅ Authentication successful!")
+
+                # Optional: fetch profile and margins to confirm connectivity
+                try:
+                    profile = self.kite.profile()
+                    margins = self.kite.margins()
+                    bal = float(margins["equity"]["available"]["live_balance"])
+                    print(f"👤 Welcome: {profile.get('user_name','?')}")
+                    print(f"💰 Available Balance: ₹{bal:,.2f}")
+                    self.account_equity = max(bal, DEFAULT_ACCOUNT_EQUITY)
+                    self.max_positions = self._max_positions_for_equity(self.account_equity)
+                except Exception as e:
+                    print(f"⚠️ Auth OK but couldn't fetch profile/margins: {e}")
+
+                self.bot_status = "Active"
+                return True
+
+            except Exception as e:
+                msg = str(e).lower()
+                print(f"❌ Attempt {attempt} failed: {e}")
+                if "invalid" in msg or "expired" in msg:
+                    print("💡 Token expired or invalid. Get a fresh token and try again.")
+                    if attempt < max_attempts:
+                        try:
+                            print(f"🔗 New login URL: {self.kite.login_url()}")
+                        except Exception:
+                            pass
+                else:
+                    print("💡 Check internet connectivity and API credentials.")
+
+                if attempt == max_attempts:
+                    return False
+
+        return False
+
 
     def load_saved_token(self):
         try:
