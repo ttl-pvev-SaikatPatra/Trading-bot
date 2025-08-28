@@ -346,39 +346,51 @@ class AutoTradingBot:
         data_5 = self.fetch_bars(symbol, interval="5m", days=2)
         if data_30 is None or data_5 is None or len(data_30) < 40 or len(data_5) < 40:
             return None
+
+        # 30m EMA20 slope and price position
         ema20_30 = self.ema(data_30["close"], 20)
-        slope_up = ema20_30.iloc[-1] > ema20_30.iloc[-2]
-        slope_down = ema20_30.iloc[-1] < ema20_30.iloc[-2]
-        price_30 = data_30["close"].iloc[-1]
-        above_ema_30 = price_30 > ema20_30.iloc[-1]
-        below_ema_30 = price_30 < ema20_30.iloc[-1]
-        vwap_5 = self.compute_vwap(data_5)
-        price_5 = data_5["close"].iloc[-1]
-        above_vwap = price_5 > vwap_5.iloc[-1]
-        below_vwap = price_5 < vwap_5.iloc[-1]
+        if ema20_30.isna().iloc[-2:].any():
+            return None
+        slope_up = bool(ema20_30.iloc[-1] > ema20_30.iloc[-2])
+        slope_down = bool(ema20_30.iloc[-1] < ema20_30.iloc[-2])
+        price_30 = float(data_30["close"].iloc[-1])
+        above_ema_30 = bool(price_30 > float(ema20_30.iloc[-1]))
+        below_ema_30 = bool(price_30 < float(ema20_30.iloc[-1]))
+
+        # 5m VWAP position (use last cumulative VWAP)
+        vwap_5_series = self.compute_vwap(data_5)
+        if vwap_5_series.isna().iloc[-1]:
+            return None
+        vwap_5_last = float(vwap_5_series.iloc[-1])
+        price_5 = float(data_5["close"].iloc[-1])
+        above_vwap = bool(price_5 > vwap_5_last)
+        below_vwap = bool(price_5 < vwap_5_last)
+
         return {
-            "long_ok": slope_up and above_ema_30 and above_vwap,
-            "short_ok": slope_down and below_ema_30 and below_vwap,
+            "long_ok": (slope_up and above_ema_30 and above_vwap),
+            "short_ok": (slope_down and below_ema_30 and below_vwap),
             "data_5": data_5
         }
+
 
     def generate_trade_signal(self, symbol):
         mtf = self.mtf_confirmation(symbol)
         if mtf is None:
             return None
         data_5 = mtf["data_5"]
+
         tr = pd.DataFrame({
             "hl": data_5["high"] - data_5["low"],
             "hc": (data_5["high"] - data_5["close"].shift()).abs(),
             "lc": (data_5["low"] - data_5["close"].shift()).abs(),
         }).max(axis=1)
         atr5 = tr.rolling(14).mean().iloc[-1]
-        if np.isnan(atr5) or atr5 <= 0:
+        if pd.isna(atr5) or atr5 <= 0:
             return None
 
-        last_close = data_5["close"].iloc[-1]
-        prev_24_high = data_5["high"].rolling(24).max().iloc[-2]
-        prev_24_low = data_5["low"].rolling(24).min().iloc[-2]
+        last_close = float(data_5["close"].iloc[-1])
+        prev_24_high = float(data_5["high"].rolling(24).max().iloc[-2])
+        prev_24_low = float(data_5["low"].rolling(24).min().iloc[-2])
 
         daily_atr_pct = 1.0
         try:
@@ -398,6 +410,7 @@ class AutoTradingBot:
         if mtf["short_ok"] and short_break:
             return ("SHORT", float(atr5), float(last_close))
         return None
+
 
     # ========= Sizing / Orders =========
     def _max_positions_for_equity(self, eq):
