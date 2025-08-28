@@ -253,10 +253,10 @@ class AutoTradingBot:
             g["ATR_pct"] = (g["ATR"] / g["Close"]) * 100.0
             g["Turnover"] = g["Close"] * g["Volume"]
             g["MedTurn20"] = g["Turnover"].rolling(20).median()
-            g["Ret20"] = g["Close"].pct_change(20)
+            g["Ret20"] = g["Close"].pct_change(20, fill_method=None)
             g["GapRisk"] = (g["Open"] - g["Close"].shift(1)).abs().rolling(20).std()
             return g
-        df = df.groupby("Symbol", group_keys=False).apply(featurize)
+        df = df.groupby("Symbol", group_keys=False).apply(lambda g: featurize(g.drop(columns=["Symbol"]))))
         last = df.sort_values(["Symbol","Date"]).groupby("Symbol").tail(1)
         last["ATRpct_rank"] = last["ATR_pct"].rank(pct=True)
         last["Turn_rank"] = last["MedTurn20"].rank(pct=True)
