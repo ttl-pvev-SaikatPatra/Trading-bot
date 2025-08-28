@@ -344,12 +344,13 @@ class AutoTradingBot:
     def mtf_confirmation(self, symbol):
         data_30 = self.fetch_bars(symbol, interval="30m", days=10)
         data_5 = self.fetch_bars(symbol, interval="5m", days=2)
+
         if data_30 is None or data_5 is None or len(data_30) < 40 or len(data_5) < 40:
-        logger.info(
-             f"{symbol}: insufficient bars (30m={len(data_30) if data_30 is not None else 0}, "
-             f"5m={len(data_5) if data_5 is not None else 0})"
-        )
-        return None
+            logger.info(
+                f"{symbol}: insufficient bars (30m={len(data_30) if data_30 is not None else 0}, "
+                f"5m={len(data_5) if data_5 is not None else 0})"
+            )
+            return None
 
         # 30m EMA20 slope and price position
         ema20_30 = self.ema(data_30["close"], 20)
