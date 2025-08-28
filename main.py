@@ -345,22 +345,35 @@ class AutoTradingBot:
         data_30 = self.fetch_bars(symbol, interval="30m", days=10)
         data_5 = self.fetch_bars(symbol, interval="5m", days=2)
         if data_30 is None or data_5 is None or len(data_30) < 40 or len(data_5) < 40:
-            return None
+        logger.info(f"{symbol}: insufficient bars (30m={len(data_30) if data_30 is not None else 0}, 5m={len(data_5) if data_5 is not None else 0})")
+        return None
 
         # 30m EMA20 slope and price position
         ema20_30 = self.ema(data_30["close"], 20)
-        if ema20_30.isna().iloc[-2:].any():
+        # Explicit scalar NaN check (avoid ambiguous truth of Series)
+        if bool(ema20_30.iloc[-2:].isna().any()):
+            logger.info(f"{symbol}: EMA20 has NaNs in last 2 bars")  #[2][1]
             return None
-        slope_up = bool(ema20_30.iloc[-1] > ema20_30.iloc[-2])
-        slope_down = bool(ema20_30.iloc[-1] < ema20_30.iloc[-2])
-        price_30 = float(data_30["close"].iloc[-1])
-        above_ema_30 = bool(price_30 > float(ema20_30.iloc[-1]))
-        below_ema_30 = bool(price_30 < float(ema20_30.iloc[-1]))
 
-        # 5m VWAP position (use last cumulative VWAP)
+        ema_last = float(ema20_30.iloc[-1])
+        ema_prev = float(ema20_30.iloc[-2])
+        slope_up = bool(ema_last > ema_prev)
+        slope_down = bool(ema_last < ema_prev)
+
+        price_30 = float(data_30["close"].iloc[-1])
+        above_ema_30 = bool(price_30 > ema_last)
+        below_ema_30 = bool(price_30 < ema_last)
+
+        # 5m VWAP vs price (use last vwap scalar)
         vwap_5_series = self.compute_vwap(data_5)
-        if vwap_5_series.isna().iloc[-1]:
-            return None
+        vwap_is_nan = False
+        try:
+            vwap_is_nan = bool(pd.isna(vwap_5_series.iloc[-1]))
+        except Exception:
+            vwap_is_nan = True
+        if vwap_is_nan:
+            logger.info(f"{symbol}: VWAP last is NaN")  #[1]
+            return None  #[1]
         vwap_5_last = float(vwap_5_series.iloc[-1])
         price_5 = float(data_5["close"].iloc[-1])
         above_vwap = bool(price_5 > vwap_5_last)
@@ -370,7 +383,7 @@ class AutoTradingBot:
             "long_ok": (slope_up and above_ema_30 and above_vwap),
             "short_ok": (slope_down and below_ema_30 and below_vwap),
             "data_5": data_5
-        }
+        }   #[3][1]
 
 
     def generate_trade_signal(self, symbol):
