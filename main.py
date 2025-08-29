@@ -781,6 +781,7 @@ def api_status():
         margins = bot.kite.margins()
         available_cash = margins["equity"]["available"]["live_balance"]
         access_valid = True
+
     except Exception:
         available_cash = 0
         access_valid = False
@@ -826,6 +827,7 @@ def api_status():
         "risk_per_trade": bot.risk_per_trade,
         "max_positions": bot.max_positions,
         "last_update": now_ist().strftime("%H:%M:%S")
+        "keep_alive": keep_alive_status
     })
 
 @app.route("/api/close-position", methods=["POST"])
@@ -1025,6 +1027,7 @@ if __name__ == "__main__":
         print("Scheduler loop started")
         while True:
             try:
+                print("Running scheduled tasks...")
                 if bot.access_token:
                     schedule.run_pending()
             except Exception as e:
