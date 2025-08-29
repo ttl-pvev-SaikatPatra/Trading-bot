@@ -826,7 +826,7 @@ def api_status():
         "auth_required": auth_required,
         "risk_per_trade": bot.risk_per_trade,
         "max_positions": bot.max_positions,
-        "last_update": now_ist().strftime("%H:%M:%S")
+        "last_update": now_ist().strftime("%H:%M:%S"),
         "keep_alive": keep_alive_status
     })
 
