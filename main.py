@@ -298,7 +298,6 @@ class AutoTradingBot:
 
     def compute_vwap(self, df):
         pv = (df["close"] * df["volume"]).cumsum()
-        price_30 = float(data_30["close"].iloc[-1]) 
         vv = (df["volume"]).cumsum().replace(0, np.nan)
         return pv / vv
 
@@ -344,6 +343,7 @@ class AutoTradingBot:
 
         ema_last = float(ema20_30.iloc[-1])
         ema_prev = float(ema20_30.iloc[-2])
+        price_30 = float(data_30["close"].iloc[-1])
 
         
         slope_up = ema_last > ema_prev
@@ -854,7 +854,7 @@ def control(action):
     if not bot.access_token:
         return jsonify({"status": "Authenticate first"}), 401
     if action == "scan":
-        threading.Thread(target=bot.scan_for_opportunities, daemon=True).start()
+        bot.scan_for_opportunities()
         return jsonify({"status": "scan queued"})
     elif action == "pause":
         bot.bot_status = "Paused"
@@ -864,7 +864,7 @@ def control(action):
         return jsonify({"status": "resumed"})
     elif action == "rebuild_and_scan":
         bot.update_daily_stock_list()
-        threading.Thread(target=bot.scan_for_opportunities, daemon=True).start()
+        bot.scan_for_opportunities()
         return jsonify({"status": "rebuild+scan queued"})
     return jsonify({"status": f"unknown action {action}"}), 400
 
