@@ -47,8 +47,6 @@ CONSECUTIVE_LOSS_LIMIT = 4      # Pause after 4 losses
 
 
 UNIVERSE_SIZE = int(os.environ.get("UNIVERSE_SIZE", "20"))
-HYST_ADD_RANK = int(os.environ.get("HYST_ADD_RANK", "30"))
-HYST_DROP_RANK = int(os.environ.get("HYST_DROP_RANK", "50"))
 
 BACKTEST_YEARS = int(os.environ.get("BACKTEST_YEARS", "1"))
 
@@ -248,55 +246,31 @@ class AutoTradingBot:
             return pd.DataFrame()
         return pd.concat(frames, ignore_index=True)
 
-    def _compute_features(self, df):
-        def featurize(g):
-            g = g.sort_values("Date").copy()
-            tr1 = g["High"] - g["Low"]
-            tr2 = (g["High"] - g["Close"].shift(1)).abs()
-            tr3 = (g["Low"] - g["Close"].shift(1)).abs()
-            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-            g["ATR"] = tr.rolling(20).mean()
-            g["ATR_pct"] = (g["ATR"] / g["Close"]) * 100.0
-            g["Turnover"] = g["Close"] * g["Volume"]
-            g["MedTurn20"] = g["Turnover"].rolling(20).median()
-            g["Ret20"] = g["Close"].pct_change(20, fill_method=None)
-            g["GapRisk"] = (g["Open"] - g["Close"].shift(1)).abs().rolling(20).std()
-            return g
-        df = df.groupby("Symbol", group_keys=False).apply(
-    lambda g: featurize(g.drop(columns=["Symbol"])).assign(Symbol=g["Symbol"].iloc[0])
-)
-
-        last = df.sort_values(["Symbol","Date"]).groupby("Symbol").tail(1)
-        last["ATRpct_rank"] = last["ATR_pct"].rank(pct=True)
-        last["Turn_rank"] = last["MedTurn20"].rank(pct=True)
-        last["Mom_rank"] = last["Ret20"].rank(pct=True)
-        last["Gap_rank"] = last["GapRisk"].rank(pct=True)
-        last["Score"] = 0.45*last["ATRpct_rank"] + 0.40*last["Turn_rank"] + 0.25*last["Mom_rank"] - 0.20*last["Gap_rank"]
-        return last
+    def _get_simple_universe(self):
+        """Return the simplified stable universe"""
+        return [s.replace(".NS", "") for s in STABLE_UNIVERSE]
 
     def update_daily_stock_list(self):
+        """Use simplified stable universe instead of complex selection"""
         try:
             with self._cache_lock:
-                logger.info("Building dynamic universe...")
-                eod = self._fetch_eod_batch(BASE_TICKERS, period="12mo")
-                if eod.empty:
-                    logger.warning("Universe build failed: no EOD data.")
-                    return
-                feats = self._compute_features(eod)
-                feats = feats[(feats["MedTurn20"] > 2e7) & (feats["Close"] >= 50)]
-                feats = feats.sort_values("Score", ascending=False).head(UNIVERSE_SIZE).reset_index(drop=True)
-                prev = set(self.daily_stock_list)
-                ranked = list(feats["Symbol"].values)
-                add = [s for i, s in enumerate(ranked) if (s not in prev) and (i < HYST_ADD_RANK)]
-                keep = [s for i, s in enumerate(ranked) if (s in prev) or (i < HYST_DROP_RANK)]
-                session_list = list(dict.fromkeys(keep + add))[:UNIVERSE_SIZE]
-                self.daily_stock_list = [s.replace(".NS","") for s in session_list]
-                self.universe_features = feats.copy()
+                logger.info("Using simplified stable universe...")
+                # Simply use the predefined stable universe
+                self.daily_stock_list = self._get_simple_universe()
                 self.universe_version = now_ist().strftime("%Y-%m-%d")
                 self._last_cache_update = now_ist()
-                logger.info(f"Universe built with {len(self.daily_stock_list)} symbols.")
+                logger.info(f"Universe loaded with {len(self.daily_stock_list)} stable stocks.")
+                
+                # Create a simple features dataframe for API compatibility
+                self.universe_features = pd.DataFrame({
+                    'Symbol': [f"{s}.NS" for s in self.daily_stock_list],
+                    'Close': [100.0] * len(self.daily_stock_list),  # Dummy values
+                    'ATR_pct': [1.5] * len(self.daily_stock_list),   # Dummy values  
+                    'MedTurn20': [50000000] * len(self.daily_stock_list),  # Dummy values
+                    'Score': [1.0] * len(self.daily_stock_list)      # Dummy values
+                })
         except Exception as e:
-            logger.error(f"Failed to build universe: {e}")
+            logger.error(f"Failed to load stable universe: {e}")
 
     def maybe_refresh_daily_stock_list(self):
         scheduled_times = [datetime_time(8,45), datetime_time(11,0), datetime_time(13,0)]
