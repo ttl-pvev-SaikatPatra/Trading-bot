@@ -34,13 +34,19 @@ if not API_KEY or not API_SECRET:
     print(f"Missing API_KEY: {API_KEY}, API_SECRET: {API_SECRET}")
 
 DEFAULT_ACCOUNT_EQUITY = float(os.environ.get("ACCOUNT_EQUITY", "10000"))
-RISK_PER_TRADE = float(os.environ.get("RISK_PER_TRADE", "0.04"))
+RISK_PER_TRADE = float(os.environ.get("RISK_PER_TRADE", "0.015"))
 MAX_POSITIONS_10K = int(os.environ.get("MAX_POS_10K", "2"))
-MAX_POSITIONS_20K = int(os.environ.get("MAX_POS_20K", "3"))
-MAX_POSITIONS_30K = int(os.environ.get("MAX_POS_30K", "4"))
-MAX_NOTIONAL_PCT = float(os.environ.get("MAX_NOTIONAL_PCT", "0.15"))
+MAX_POSITIONS_20K = int(os.environ.get("MAX_POS_20K", "2"))
+MAX_POSITIONS_30K = int(os.environ.get("MAX_POS_30K", "3"))
+MAX_NOTIONAL_PCT = float(os.environ.get("MAX_NOTIONAL_PCT", "0.08"))
+# Add these new safety parameters:
+DAILY_LOSS_LIMIT = 500          # Stop if lose ₹500/day
+WEEKLY_LOSS_LIMIT = 1500        # Pause if lose ₹1500/week
+MAX_TRADES_PER_DAY = 2          # Maximum 2 trades per day
+CONSECUTIVE_LOSS_LIMIT = 4      # Pause after 4 losses
 
-UNIVERSE_SIZE = int(os.environ.get("UNIVERSE_SIZE", "40"))
+
+UNIVERSE_SIZE = int(os.environ.get("UNIVERSE_SIZE", "20"))
 HYST_ADD_RANK = int(os.environ.get("HYST_ADD_RANK", "30"))
 HYST_DROP_RANK = int(os.environ.get("HYST_DROP_RANK", "50"))
 
@@ -509,10 +515,10 @@ class AutoTradingBot:
 
             if is_buy:
                 stop_price = round2(signal_price - stop_distance)
-                target_price = round2(signal_price + 1.5 * stop_distance)
+                target_price = round2(signal_price + 2 * stop_distance)
             else:
                 stop_price = round2(signal_price + stop_distance)
-                target_price = round2(signal_price - 1.5 * stop_distance)
+                target_price = round2(signal_price - 2 * stop_distance)
 
             key = f"{symbol}_{order_id}"
             self.positions[key] = {
