@@ -247,15 +247,15 @@ class AutoTradingBot:
         return pd.concat(frames, ignore_index=True)
 
     def _get_simple_universe(self):
-        """Return the simplified stable universe"""
-        return [s.replace(".NS", "") for s in STABLE_UNIVERSE]
+        """Return the simplified BASE_TICKERS"""
+        return [s.replace(".NS", "") for s in BASE_TICKERS]
 
     def update_daily_stock_list(self):
-        """Use simplified stable universe instead of complex selection"""
+        """Use simplified BASE_TICKERS instead of complex selection"""
         try:
             with self._cache_lock:
-                logger.info("Using simplified stable universe...")
-                # Simply use the predefined stable universe
+                logger.info("Using simplified BASE_TICKERS...")
+                # Simply use the predefined BASE_TICKERS
                 self.daily_stock_list = self._get_simple_universe()
                 self.universe_version = now_ist().strftime("%Y-%m-%d")
                 self._last_cache_update = now_ist()
@@ -270,7 +270,7 @@ class AutoTradingBot:
                     'Score': [1.0] * len(self.daily_stock_list)      # Dummy values
                 })
         except Exception as e:
-            logger.error(f"Failed to load stable universe: {e}")
+            logger.error(f"Failed to load BASE_TICKERS: {e}")
 
     def maybe_refresh_daily_stock_list(self):
         scheduled_times = [datetime_time(8,45), datetime_time(11,0), datetime_time(13,0)]
@@ -298,6 +298,7 @@ class AutoTradingBot:
 
     def compute_vwap(self, df):
         pv = (df["close"] * df["volume"]).cumsum()
+        price_30 = float(data_30["close"].iloc[-1]) 
         vv = (df["volume"]).cumsum().replace(0, np.nan)
         return pv / vv
 
