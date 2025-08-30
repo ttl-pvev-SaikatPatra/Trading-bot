@@ -868,17 +868,505 @@ def control(action):
         return jsonify({"status": "rebuild+scan queued"})
     return jsonify({"status": f"unknown action {action}"}), 400
 
+# Replace the backtest_run function with this comprehensive version:
+
 @app.route("/backtest/run", methods=["POST"])
 def backtest_run():
+    """Comprehensive backtesting using actual strategy logic and universe"""
+    try:
+        data = request.get_json() or {}
+        
+        # Backtest parameters from frontend
+        start_date = data.get("start_date", "2024-03-01")
+        end_date = data.get("end_date", "2024-08-30")
+        initial_capital = data.get("capital", 25000)
+        
+        # Run backtest with your ACTUAL universe
+        results = run_comprehensive_backtest(start_date, end_date, initial_capital)
+        
+        # Save detailed results
+        results_df = pd.DataFrame(results['trades'])
+        results_df.to_csv("backtest_detailed.csv", index=False)
+        
+        return jsonify({
+            "success": True,
+            "summary": results['summary'],
+            "trades": len(results['trades']),
+            "daily_pnl": results['daily_pnl'][-10:],  # Last 10 days for chart
+            "csv_url": "/backtest/csv"
+        })
+        
+    except Exception as e:
+        logger.error(f"Backtest error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+def run_comprehensive_backtest(start_date, end_date, initial_capital):
+    """Run backtest using YOUR actual universe and strategy"""
+    logger.info(f"🔄 Starting backtest: {start_date} to {end_date}")
+    
+    # Use YOUR actual universe - all BASE_TICKERS
+    universe = [s.replace(".NS", "") for s in BASE_TICKERS]
+    logger.info(f"Using {len(universe)} stocks from your actual universe")
+    
+    # Initialize backtest state
+    capital = initial_capital
+    positions = {}
     trades = []
-    equity = DEFAULT_ACCOUNT_EQUITY
-    for i in range(20):
-        pnl = np.random.normal(loc=equity * 0.002, scale=equity * 0.004)
-        equity += pnl
-        trades.append({"day": i+1, "pnl": round2(pnl), "equity": round2(equity)})
-    out_csv = "backtest_pnl.csv"
-    pd.DataFrame(trades).to_csv(out_csv, index=False)
-    return jsonify({"success": True, "final_equity": round2(equity), "trades": len(trades), "csv": "/backtest/csv"})
+    daily_pnl = []
+    
+    # Date range generation
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    
+    current_date = start
+    total_days = (end - start).days
+    day_count = 0
+    
+    while current_date <= end:
+        if current_date.weekday() < 5:  # Trading days only
+            day_count += 1
+            logger.info(f"📅 Day {day_count}: {current_date.strftime('%Y-%m-%d')}")
+            
+            # Simulate your actual trading logic for this day
+            daily_result = simulate_actual_trading_day(
+                current_date, universe, capital, positions, 
+                initial_capital  # Pass for position sizing
+            )
+            
+            # Update capital and tracking
+            capital += daily_result['daily_pnl']
+            trades.extend(daily_result['trades'])
+            
+            daily_pnl.append({
+                'date': current_date.strftime("%Y-%m-%d"),
+                'daily_pnl': round(daily_result['daily_pnl'], 2),
+                'total_capital': round(capital, 2),
+                'active_positions': len(positions),
+                'trades_today': len(daily_result['trades'])
+            })
+            
+            if day_count % 10 == 0:  # Progress update every 10 days
+                logger.info(f"Progress: {day_count}/{total_days * 5/7:.0f} days, Capital: ₹{capital:.0f}")
+        
+        current_date += timedelta(days=1)
+    
+    # Calculate comprehensive metrics using your actual data
+    summary = calculate_realistic_metrics(trades, daily_pnl, initial_capital, capital)
+    
+    return {
+        'trades': trades,
+        'daily_pnl': daily_pnl,
+        'summary': summary
+    }
+
+def simulate_actual_trading_day(date, universe, current_capital, positions, initial_capital):
+    """Simulate one day using YOUR actual bot logic"""
+    daily_trades = []
+    daily_pnl = 0
+    
+    # 1. Monitor existing positions (your actual monitor_positions logic)
+    for symbol in list(positions.keys()):
+        position = positions[symbol]
+        
+        # Get historical price for this date
+        current_price = get_backtest_price(symbol, date)
+        if current_price is None:
+            continue
+            
+        # Apply YOUR actual exit conditions
+        exit_result = check_backtest_exits(position, current_price, date)
+        
+        if exit_result['should_exit']:
+            # Calculate P&L using your actual logic
+            if position['side'] == 'BUY':
+                pnl = (current_price - position['entry_price']) * position['quantity']
+            else:
+                pnl = (position['entry_price'] - current_price) * position['quantity']
+            
+            # Subtract transaction costs (₹47 per trade)
+            pnl -= 47
+            
+            daily_trades.append({
+                'date': date.strftime("%Y-%m-%d"),
+                'symbol': symbol,
+                'side': position['side'],
+                'entry_price': position['entry_price'],
+                'exit_price': current_price,
+                'quantity': position['quantity'],
+                'pnl': round(pnl, 2),
+                'exit_reason': exit_result['reason'],
+                'hold_hours': int((date - position['entry_date']).total_seconds() / 3600)
+            })
+            
+            daily_pnl += pnl
+            del positions[symbol]
+            logger.info(f"  ✅ Closed {position['side']} {symbol}: ₹{pnl:.0f} ({exit_result['reason']})")
+    
+    # 2. Look for new signals (your actual signal generation)
+    max_positions = 2  # Your actual setting
+    if len(positions) < max_positions:
+        
+        # Randomly check some stocks (simulate scanning)
+        import random
+        scan_symbols = random.sample(universe, min(20, len(universe)))
+        
+        for symbol in scan_symbols:
+            if symbol in positions:
+                continue
+                
+            # Use YOUR actual signal generation logic (simplified for backtest)
+            signal = generate_backtest_signal(symbol, date)
+            
+            if signal and len(positions) < max_positions:
+                direction, atr, signal_price = signal
+                
+                # Use YOUR actual position sizing (1.5% risk)
+                risk_amount = current_capital * 0.015  # Your actual RISK_PER_TRADE
+                if atr > 0:
+                    qty = max(1, int(risk_amount / atr))
+                    
+                    # Apply your max notional limit (8%)
+                    max_notional = current_capital * 0.08  # Your MAX_NOTIONAL_PCT
+                    if qty * signal_price > max_notional:
+                        qty = max(1, int(max_notional / signal_price))
+                    
+                    if qty > 0:
+                        # Entry transaction cost
+                        daily_pnl -= 47
+                        
+                        # Create position using your actual logic
+                        positions[symbol] = {
+                            'side': direction,
+                            'entry_price': signal_price,
+                            'quantity': qty,
+                            'entry_date': date,
+                            'target_price': signal_price + (2 * atr) if direction == 'BUY' else signal_price - (2 * atr),
+                            'stop_price': signal_price - atr if direction == 'BUY' else signal_price + atr
+                        }
+                        
+                        logger.info(f"  📈 New {direction} {symbol} @ ₹{signal_price:.1f}, qty={qty}")
+                        break  # Only one new position per day (realistic)
+    
+    return {'daily_pnl': daily_pnl, 'trades': daily_trades}
+
+def generate_backtest_signal(symbol, date):
+    """Simplified version of your actual signal generation"""
+    try:
+        # Get historical data as it would have been available on that date
+        data_30m = get_backtest_historical_data(symbol, date, "30m", 10)
+        data_5m = get_backtest_historical_data(symbol, date, "5m", 2)
+        
+        if data_30m is None or data_5m is None or len(data_30m) < 40 or len(data_5m) < 40:
+            return None
+        
+        # Simplified MTF confirmation (based on your actual logic)
+        ema20_30 = data_30m["close"].ewm(span=20).mean()
+        if ema20_30.iloc[-2:].isna().any():
+            return None
+            
+        ema_last = float(ema20_30.iloc[-1])
+        ema_prev = float(ema20_30.iloc[-2])
+        price_30 = float(data_30m["close"].iloc[-1])
+        
+        # VWAP calculation
+        vwap_5 = ((data_5m["close"] * data_5m["volume"]).cumsum() / 
+                  data_5m["volume"].cumsum())
+        
+        if pd.isna(vwap_5.iloc[-1]):
+            return None
+            
+        vwap_last = float(vwap_5.iloc[-1])
+        price_5 = float(data_5m["close"].iloc[-1])
+        
+        # Your actual signal conditions
+        slope_up = ema_last > ema_prev
+        slope_down = ema_last < ema_prev
+        above_ema = price_30 > ema_last
+        below_ema = price_30 < ema_last
+        above_vwap = price_5 > vwap_last
+        below_vwap = price_5 < vwap_last
+        
+        # ATR calculation
+        high_low = data_5m["high"] - data_5m["low"]
+        high_close = (data_5m["high"] - data_5m["close"].shift()).abs()
+        low_close = (data_5m["low"] - data_5m["close"].shift()).abs()
+        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        atr5 = true_range.rolling(14).mean().iloc[-1]
+        
+        if pd.isna(atr5) or atr5 <= 0:
+            return None
+        
+        # Breakout detection (simplified)
+        last_close = float(data_5m["close"].iloc[-1])
+        recent_high = float(data_5m["high"].rolling(24).max().iloc[-2])
+        recent_low = float(data_5m["low"].rolling(24).min().iloc[-2])
+        
+        # Your actual signal logic
+        long_signal = (slope_up and above_ema and above_vwap and 
+                      last_close > recent_high * 1.0025)
+        short_signal = (slope_down and below_ema and below_vwap and 
+                       last_close < recent_low * 0.9975)
+        
+        if long_signal:
+            return ("BUY", float(atr5), float(last_close))
+        elif short_signal:
+            return ("SHORT", float(atr5), float(last_close))
+            
+        return None
+        
+    except Exception as e:
+        return None
+
+def get_backtest_historical_data(symbol, date, interval, days):
+    """Get historical data for backtesting"""
+    try:
+        end_date = date
+        start_date = date - timedelta(days=days)
+        
+        df = yf.download(f"{symbol}.NS", 
+                        start=start_date.strftime("%Y-%m-%d"),
+                        end=(end_date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                        interval=interval,
+                        progress=False)
+        
+        if df.empty:
+            return None
+            
+        df = df.reset_index()
+        df.columns = df.columns.str.lower()
+        
+        # Only return data up to the backtest date (no lookahead bias)
+        df = df[df['datetime'].dt.date <= date.date()]
+        
+        return df
+        
+    except Exception:
+        return None
+
+def get_backtest_price(symbol, date):
+    """Get closing price for a specific date"""
+    try:
+        df = yf.download(f"{symbol}.NS", 
+                        start=date.strftime("%Y-%m-%d"),
+                        end=(date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                        progress=False)
+        
+        if df.empty:
+            return None
+            
+        return float(df['Close'].iloc[-1])
+        
+    except Exception:
+        return None
+
+def check_backtest_exits(position, current_price, date):
+    """Check exit conditions using your actual logic"""
+    
+    # Target hit
+    if position['side'] == 'BUY' and current_price >= position['target_price']:
+        return {'should_exit': True, 'reason': 'Target'}
+    if position['side'] == 'SHORT' and current_price <= position['target_price']:
+        return {'should_exit': True, 'reason': 'Target'}
+    
+    # Stop hit
+    if position['side'] == 'BUY' and current_price <= position['stop_price']:
+        return {'should_exit': True, 'reason': 'Stop Loss'}
+    if position['side'] == 'SHORT' and current_price >= position['stop_price']:
+        return {'should_exit': True, 'reason': 'Stop Loss'}
+    
+    # End of day (your actual 3:10 PM exit)
+    # For backtesting, assume end of day exit
+    hours_held = (date - position['entry_date']).total_seconds() / 3600
+    if hours_held > 6:  # Approximate market day
+        return {'should_exit': True, 'reason': 'EOD'}
+    
+    return {'should_exit': False, 'reason': None}
+
+def calculate_realistic_metrics(trades, daily_pnl, initial_capital, final_capital):
+    """Calculate comprehensive performance metrics"""
+    
+    if not trades:
+        return {
+            "error": "No trades generated during backtest period",
+            "initial_capital": initial_capital,
+            "final_capital": final_capital
+        }
+    
+    trades_df = pd.DataFrame(trades)
+    
+    # Basic performance metrics
+    total_trades = len(trades)
+    winning_trades = len(trades_df[trades_df['pnl'] > 0])
+    losing_trades = len(trades_df[trades_df['pnl'] < 0])
+    
+    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+    
+    total_return = final_capital - initial_capital
+    total_return_pct = (total_return / initial_capital * 100)
+    
+    # Win/Loss analysis
+    avg_win = trades_df[trades_df['pnl'] > 0]['pnl'].mean() if winning_trades > 0 else 0
+    avg_loss = abs(trades_df[trades_df['pnl'] < 0]['pnl'].mean()) if losing_trades > 0 else 0
+    
+    profit_factor = (avg_win * winning_trades) / (avg_loss * losing_trades) if losing_trades > 0 and avg_loss > 0 else float('inf')
+    
+    # Monthly analysis
+    trades_df['date'] = pd.to_datetime(trades_df['date'])
+    trades_df['month'] = trades_df['date'].dt.to_period('M')
+    monthly_pnl = trades_df.groupby('month')['pnl'].sum()
+    
+    # Risk metrics
+    daily_df = pd.DataFrame(daily_pnl)
+    if not daily_df.empty:
+        daily_returns = daily_df['daily_pnl']
+        running_capital = daily_df['total_capital']
+        
+        # Max drawdown calculation
+        peak = running_capital.expanding().max()
+        drawdown = (running_capital - peak) / peak * 100
+        max_drawdown = drawdown.min()
+        
+        # Sharpe ratio (annualized)
+        if daily_returns.std() > 0:
+            sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * (252**0.5)
+        else:
+            sharpe_ratio = 0
+    else:
+        max_drawdown = 0
+        sharpe_ratio = 0
+    
+    # Trading frequency
+    trading_days = len(daily_df) if not daily_df.empty else 1
+    trades_per_day = total_trades / trading_days
+    
+    return {
+        "period_summary": {
+            "initial_capital": round(initial_capital, 2),
+            "final_capital": round(final_capital, 2),
+            "total_return": round(total_return, 2),
+            "total_return_pct": round(total_return_pct, 2),
+            "trading_days": trading_days
+        },
+        "trading_stats": {
+            "total_trades": total_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "win_rate": round(win_rate, 1),
+            "trades_per_day": round(trades_per_day, 2)
+        },
+        "performance": {
+            "avg_win": round(avg_win, 2),
+            "avg_loss": round(avg_loss, 2),
+            "profit_factor": round(profit_factor, 2),
+            "max_drawdown": round(max_drawdown, 2),
+            "sharpe_ratio": round(sharpe_ratio, 2)
+        },
+        "monthly_analysis": {
+            "monthly_avg": round(monthly_pnl.mean(), 2) if not monthly_pnl.empty else 0,
+            "monthly_std": round(monthly_pnl.std(), 2) if not monthly_pnl.empty else 0,
+            "best_month": round(monthly_pnl.max(), 2) if not monthly_pnl.empty else 0,
+            "worst_month": round(monthly_pnl.min(), 2) if not monthly_pnl.empty else 0
+        }
+    }
+
+# Add these new routes for Vercel integration:
+
+@app.route("/api/backtest/start", methods=["POST"])
+def api_backtest_start():
+    """Start backtest with parameters from Vercel app"""
+    try:
+        data = request.get_json()
+        
+        # Validate parameters
+        start_date = data.get("start_date", "2024-03-01")
+        end_date = data.get("end_date", "2024-08-30")
+        capital = data.get("capital", 25000)
+        
+        # Start backtest in background thread
+        import threading
+        
+        def run_backtest():
+            global backtest_status, backtest_results
+            backtest_status = {"status": "running", "progress": 0}
+            
+            try:
+                results = run_comprehensive_backtest(start_date, end_date, capital)
+                backtest_status = {"status": "completed", "progress": 100}
+                backtest_results = results
+            except Exception as e:
+                backtest_status = {"status": "error", "error": str(e), "progress": 0}
+        
+        # Initialize global variables
+        global backtest_status, backtest_results
+        backtest_status = {"status": "starting", "progress": 0}
+        backtest_results = None
+        
+        # Start backtest
+        thread = threading.Thread(target=run_backtest, daemon=True)
+        thread.start()
+        
+        return jsonify({
+            "success": True,
+            "message": "Backtest started",
+            "status": "running"
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/backtest/status", methods=["GET"])
+def api_backtest_status():
+    """Get current backtest status for Vercel app"""
+    global backtest_status
+    if 'backtest_status' not in globals():
+        return jsonify({"status": "idle", "progress": 0})
+    return jsonify(backtest_status)
+
+@app.route("/api/backtest/results", methods=["GET"])
+def api_backtest_results():
+    """Get backtest results for Vercel app"""
+    global backtest_results
+    if 'backtest_results' not in globals() or backtest_results is None:
+        return jsonify({"success": False, "error": "No results available"}), 404
+    
+    return jsonify({
+        "success": True,
+        "data": backtest_results
+    })
+
+@app.route("/api/backtest/presets", methods=["GET"])
+def api_backtest_presets():
+    """Get preset backtest configurations"""
+    presets = [
+        {
+            "name": "Last 3 Months",
+            "start_date": "2024-06-01",
+            "end_date": "2024-08-30",
+            "description": "Recent market conditions"
+        },
+        {
+            "name": "Last 6 Months", 
+            "start_date": "2024-03-01",
+            "end_date": "2024-08-30",
+            "description": "Includes market volatility"
+        },
+        {
+            "name": "YTD 2024",
+            "start_date": "2024-01-01", 
+            "end_date": "2024-08-30",
+            "description": "Full year performance"
+        },
+        {
+            "name": "High Volatility Period",
+            "start_date": "2024-03-15",
+            "end_date": "2024-04-15", 
+            "description": "Market stress test"
+        }
+    ]
+    
+    return jsonify({"presets": presets})
+
+
 
 @app.route("/backtest/csv", methods=["GET"])
 def backtest_csv():
