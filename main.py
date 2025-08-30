@@ -887,6 +887,59 @@ def backtest_csv():
         return jsonify({"success": False, "message": "No CSV"}), 404
     return send_file(fname, as_attachment=True)
 
+# Add these NEW endpoints:
+
+@app.route('/cron/monitor-positions', methods=['GET', 'POST'])
+def cron_monitor_positions():
+    """Called every 5 minutes during market hours"""
+    try:
+        if bot.access_token and is_market_open_now():
+            bot.monitor_positions()
+            return jsonify({
+                "status": "success", 
+                "positions": len(bot.positions),
+                "timestamp": now_ist().isoformat()
+            })
+        return jsonify({"status": "skipped", "reason": "market closed or no auth"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/cron/scan-opportunities', methods=['GET', 'POST'])  
+def cron_scan_opportunities():
+    """Called every 15 minutes during market hours"""
+    try:
+        if bot.access_token and is_market_open_now() and len(bot.positions) < bot.max_positions:
+            bot.scan_for_opportunities()
+            return jsonify({"status": "success", "scanned": True})
+        return jsonify({"status": "skipped", "reason": "conditions not met"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/cron/health-check', methods=['GET', 'POST'])
+def cron_health_check():
+    """Called every 10 minutes - keeps app awake"""
+    return jsonify({
+        "status": "alive",
+        "bot_status": bot.bot_status,
+        "positions": len(bot.positions),
+        "market_open": is_market_open_now(),
+        "timestamp": now_ist().isoformat()
+    })
+
+@app.route('/cron/universe-update', methods=['GET', 'POST'])
+def cron_universe_update():
+    """Called once daily at 8:30 AM"""
+    try:
+        bot.update_daily_stock_list()
+        return jsonify({
+            "status": "success", 
+            "universe_size": len(bot.daily_stock_list),
+            "version": bot.universe_version
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
 # ==================== OAuth routes ====================
 def _kite_login_url(api_key: str, redirect_params: dict | None = None):
     base = "https://kite.zerodha.com/connect/login?v=3"
@@ -953,33 +1006,6 @@ def _finish_auth_redirect(success: bool, code: str, next_path: str, state: str):
     return redirect(url, code=302)
 
 # ==================== App main ====================
-def keep_alive_ping(interval_seconds=300, timeout_seconds=5, url_env_var="RENDER_PUBLIC_URL"):
-    session = _make_session()
-    base_url = os.environ.get(url_env_var)
-    if not base_url:
-        logger.warning(f"{url_env_var} not set; keep-alive disabled.")
-        return
-    base_url = base_url.rstrip("/")
-    health_url = f"{base_url}/health"
-    logger.info(f"Keep-alive ping started: {health_url} every {interval_seconds}s")
-    while not STOP_EVENT.is_set():
-        try:
-            time.sleep(interval_seconds)
-            resp = session.get(health_url, timeout=timeout_seconds)
-            if resp.status_code == 200:
-                logger.info("Keep-alive OK")
-        except Exception as e:
-            logger.warning(f"Keep-alive error: {e}")
-
-def start_keep_alive_thread(interval_seconds=300, timeout_seconds=5, url_env_var="RENDER_PUBLIC_URL"):
-    t = threading.Thread(target=keep_alive_ping, kwargs=dict(
-        interval_seconds=interval_seconds,
-        timeout_seconds=timeout_seconds,
-        url_env_var=url_env_var
-    ), daemon=True)
-    t.start()
-    return t
-
 def _shutdown(*args):
     STOP_EVENT.set()
 
@@ -990,30 +1016,6 @@ if __name__ == "__main__":
     print("Intraday Trading Bot (VWAP+ATR+MTF)")
     print("Order Exec: Zerodha | Data: Yahoo Finance (demo)")
     print("Risk/trade 4% | MTF EMA20 + VWAP | ATR breakout & trailing")
-    start_keep_alive_thread(interval_seconds=int(os.environ.get("KEEPALIVE_SEC","120")))
-
-    def rapid_monitor():
-        print("Rapid monitor thread started")
-        while True:
-            try:
-                if bot.positions:
-                    bot.monitor_positions()
-            except Exception as e:
-                print(f"[Monitor Thread Error]: {e}")
-            time.sleep(20)
-    threading.Thread(target=rapid_monitor, daemon=True).start()
-
-    def run_scheduled_tasks():
-        print("Scheduler loop started")
-        while True:
-            try:
-                print("Running scheduled tasks...")
-                if bot.access_token:
-                    schedule.run_pending()
-            except Exception as e:
-                print(f"[Scheduled Task Error]: {e}")
-            time.sleep(5)
-    threading.Thread(target=run_scheduled_tasks, daemon=True).start()
 
     port = int(os.environ.get("PORT", "10000"))
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
