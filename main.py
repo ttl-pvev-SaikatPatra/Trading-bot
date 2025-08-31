@@ -512,6 +512,14 @@ class AutoTradingBot:
         except Exception as e:
             logger.error(f"Execute error {symbol}: {e}")
             return False
+        # Inside AutoTradingBot.execute_strategy, after self.save_positions() and success log:
+        try:
+            # Start rapid monitoring only when the very first live position is present
+            if len(self.positions) == 1:
+                rapid_monitor.start()
+        except Exception as e:
+            logger.warning(f"self.save_positions()Could not start rapid monitor: {e}")
+
 
     # ========= Trailing stop management =========
     def update_trailing_stops(self):
@@ -560,6 +568,14 @@ class AutoTradingBot:
             logger.info("Auth required; monitor_positions skipped.")
             return
         if not self.positions:
+        try:
+            # rapid_monitor is the global/outer instance created alongside bot
+            if 'rapid_monitor' in globals():
+                rapid_monitor.stop()
+        except Exception as e:
+            logger.warning(f"Rapid monitor early-stop failed: {e}")
+        return
+        if not self.positions:
             return
         self.update_trailing_stops()
         logger.info("Monitoring positions...")
@@ -599,6 +615,14 @@ class AutoTradingBot:
                 del self.positions[k]
         if to_close:
             self.save_positions()
+        if not self.positions:
+        try:
+            # rapid_monitor is the global/outer instance created alongside bot
+            if 'rapid_monitor' in globals():
+                rapid_monitor.stop()
+        except Exception as e:
+            logger.warning(f"Rapid monitor early-stop failed: {e}")
+        return
 
     # ========= Scanning =========
     def scan_for_opportunities(self):
@@ -686,6 +710,57 @@ class AutoTradingBot:
 
 # Global bot instance
 bot = AutoTradingBot()
+
+# Place near the bottom of main.py after bot = AutoTradingBot()
+import threading, time
+
+class RapidPositionMonitor:
+    def __init__(self, bot, interval_sec=20):
+        self.bot = bot
+        self.interval = interval_sec
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread = None
+
+    def start(self):
+        with self._lock:
+            if self._running:
+                return
+            self._running = True
+            self._thread = threading.Thread(target=self._loop, daemon=True)
+            self._thread.start()
+            logger.info(f"Rapid monitor started ({self.interval}s)")
+
+    def stop(self):
+        with self._lock:
+            self._running = False
+        logger.info("Rapid monitor stop requested")
+
+    def _loop(self):
+        # Gentle ramp: wait a moment to ensure entry is settled
+        time.sleep(2)
+        while True:
+            with self._lock:
+                if not self._running:
+                    break
+            try:
+                # If no positions, stop cleanly
+                if not self.bot.positions:
+                    logger.info("No positions; stopping rapid monitor")
+                    self.stop()
+                    break
+
+                # Call the bot’s own monitoring (targets, stops, EOD logic)
+                self.bot.monitor_positions()  # already does trailing stop + exits [1]
+
+            except Exception as e:
+                logger.error(f"Rapid monitor error: {e}")
+
+            # Sleep between polls
+            time.sleep(self.interval)
+
+rapid_monitor = RapidPositionMonitor(bot, interval_sec=20)
+
 
 # ==================== Flask Routes ====================
 @app.route("/")
