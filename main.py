@@ -568,15 +568,14 @@ class AutoTradingBot:
             logger.info("Auth required; monitor_positions skipped.")
             return
         if not self.positions:
-        try:
-            # rapid_monitor is the global/outer instance created alongside bot
-            if 'rapid_monitor' in globals():
-                rapid_monitor.stop()
-        except Exception as e:
-            logger.warning(f"Rapid monitor early-stop failed: {e}")
-        return
-        if not self.positions:
+            try:
+                # rapid_monitor is the global/outer instance created alongside bot
+                if 'rapid_monitor' in globals():
+                    rapid_monitor.stop()
+            except Exception as e:
+                logger.warning(f"Rapid monitor early-stop failed: {e}")
             return
+           
         self.update_trailing_stops()
         logger.info("Monitoring positions...")
         to_close = []
@@ -616,13 +615,13 @@ class AutoTradingBot:
         if to_close:
             self.save_positions()
         if not self.positions:
-        try:
-            # rapid_monitor is the global/outer instance created alongside bot
-            if 'rapid_monitor' in globals():
-                rapid_monitor.stop()
-        except Exception as e:
-            logger.warning(f"Rapid monitor early-stop failed: {e}")
-        return
+            try:
+                # rapid_monitor is the global/outer instance created alongside bot
+                if 'rapid_monitor' in globals():
+                    rapid_monitor.stop()
+            except Exception as e:
+                logger.warning(f"Rapid monitor early-stop failed: {e}")
+            return
 
     # ========= Scanning =========
     def scan_for_opportunities(self):
