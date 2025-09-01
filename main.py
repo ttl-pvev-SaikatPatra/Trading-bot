@@ -1135,7 +1135,7 @@ def generate_backtest_signal(symbol, date):
         
         # Simplified MTF confirmation (based on your actual logic)
         ema20_30 = data_30m["close"].ewm(span=20).mean()
-        if ema20_30.iloc[-2:].isna().any():
+        if ema20_30.iloc[-2:].isna().values.any(): # single scalar True/False
             return None
             
         ema_last = float(ema20_30.iloc[-1])
