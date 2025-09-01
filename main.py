@@ -51,6 +51,20 @@ logger = logging.getLogger("TradingAPI")
 
 STOP_EVENT = signal.SIGTERM
 
+# Normalize paths: collapse multiple slashes and drop trailing slash (except root)
+@app.before_request
+def normalize_path():
+    p = request.path
+    # Collapse accidental double slashes like //api/status
+    while '//' in p:
+        p = p.replace('//', '/')
+    # Remove trailing slash except for root
+    if p != '/' and p.endswith('/'):
+        p = p[:-1]
+    if p != request.path:
+        return redirect(p, code=301)
+
+
 def now_ist() -> datetime:
     return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
@@ -586,25 +600,46 @@ def auth_callback():
     req_token = request.args.get("request_token")
     nxt = request.args.get("next","/")
     state = request.args.get("state","")
+    # Validate input
     if not req_token or len(req_token) < 10:
         return jsonify({"success": False, "message": "invalid_request_token"}), 400
+    # Exchange + validate with the SAME API creds used for KiteConnect init
     try:
-        sess = bot.kite.generate_session(req_token, api_secret=API_SECRET)  # exchange [6]
-        access_token = sess["access_token"]
+        sess = bot.kite.generate_session(req_token, api_secret=API_SECRET)  # [13]
+        access_token = sess.get("access_token")
+        if not access_token:
+            raise Exception("no_access_token_from_kite")
+
         bot.kite.set_access_token(access_token)
         bot.access_token = access_token
 
-        # Validate token immediately
-        bot.kite.profile()  # raises if invalid [6]
+        # Immediate profile() to ensure the token is live and matches API key
+        try:
+            bot.kite.profile()  # raises TokenException if invalid/expired [13][5]
+        except Exception as e:
+            logger.error(f"Token validation failed post-exchange: {e}")
+            # Do NOT persist token; fail deterministically so UI can re-login
+            if not FRONTEND_URL:
+                return jsonify({"success": False, "message": "token_validation_failed"}), 400
+            qp = {"auth":"fail","code":"token_validation_failed"}
+            url = f"{FRONTEND_URL}{nxt if nxt.startswith('/') else '/'}"
+            sep = "&" if "?" in url else "?"
+            return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
 
-        with open("access_token.txt","w") as f:
-            f.write(f"{access_token}\n{now_ist().isoformat()}")
+        # Persist token only after validation success
+        try:
+            with open("access_token.txt","w") as f:
+                f.write(f"{access_token}\n{now_ist().isoformat()}")
+        except Exception as e:
+            logger.warning(f"Failed to persist access_token.txt: {e}")
 
+        # Warm balances (best-effort)
         try:
             bot.refresh_account_info(force=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Post-auth margins warm failed: {e}")
 
+        # Success redirect to FE
         if not FRONTEND_URL:
             return jsonify({"success": True})
         qp = {"auth":"success"}
@@ -612,14 +647,16 @@ def auth_callback():
         url = f"{FRONTEND_URL}{nxt if nxt.startswith('/') else '/'}"
         sep = "&" if "?" in url else "?"
         return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
+
     except Exception as e:
-        logger.error(f"/auth/callback failed: {e}")
+        logger.error(f"/auth/callback exchange failed: {e}")
         if not FRONTEND_URL:
             return jsonify({"success": False, "message": "exchange_failed"}), 400
         qp = {"auth":"fail","code":"exchange_failed"}
         url = f"{FRONTEND_URL}{nxt if nxt.startswith('/') else '/'}"
         sep = "&" if "?" in url else "?"
         return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
+
 
 # ==================== App main ====================
 def _shutdown(*args):
