@@ -328,48 +328,60 @@ class AutoTradingBot:
         data_30 = self.fetch_bars(symbol, interval="30m", days=10)
         data_5 = self.fetch_bars(symbol, interval="5m", days=2)
 
+        # Basic length guards
         if data_30 is None or data_5 is None or len(data_30) < 40 or len(data_5) < 40:
             logger.info(f"{symbol}: insufficient bars (30m={len(data_30) if data_30 is not None else 0}, 5m={len(data_5) if data_5 is not None else 0})")
             return None
 
+        # 30m EMA20 slope and price relation
         ema20_30 = self.ema(data_30["close"], 20)
+
+        # Explicit length check for EMA
         if len(ema20_30) < 2:
             logger.info(f"{symbol}: EMA20 has < 2 points")
             return None
-
-        last_two = ema20_30.iloc[-2:]
-        if last_two.isna().to_numpy().any():  # scalar reduction
+        
+        # Convert to numpy array to avoid all pandas ambiguity
+        ema_values = ema20_30.values
+        if ema_values.ndim > 1:
+            ema_values = ema_values.flatten()  # Handle DataFrame case
+        
+        # Check for NaN in last two values
+        if pd.isna(ema_values[-2:]).any():
             logger.info(f"{symbol}: EMA20 last two bars contain NaN")
             return None
 
-        # Extract scalars safely
-        ema_last = ema20_30.iat[-1] if hasattr(ema20_30, "iat") else ema20_30.iloc[-1]
-        ema_prev = ema20_30.iat[-2] if hasattr(ema20_30, "iat") else ema20_30.iloc[-2]
-        ema_last = ema_last.item() if hasattr(ema_last, "item") else float(ema_last)
-        ema_prev = ema_prev.item() if hasattr(ema_prev, "item") else float(ema_prev)
-
-        price_30_val = data_30["close"].iloc[-1]
-        price_30 = price_30_val.item() if hasattr(price_30_val, "item") else float(price_30_val)
+        # Extract scalars directly from numpy array
+        ema_last = float(ema_values[-1])
+        ema_prev = float(ema_values[-2])
+        
+        # Extract price as scalar
+        price_30_values = data_30["close"].values
+        price_30 = float(price_30_values[-1])
 
         slope_up = ema_last > ema_prev
         slope_down = ema_last < ema_prev
         above_ema_30 = price_30 > ema_last
         below_ema_30 = price_30 < ema_last
 
+        # 5m VWAP vs last price
         vwap_5_series = self.compute_vwap(data_5)
-
-        vwap_5_last_val = vwap_5_series.iloc[-1]
-        # pd.isna(scalar) should be bool; if it’s a 0-dim array/Series, coerce with .item()
-        vwap_last_is_nan_raw = pd.isna(vwap_5_last_val)
-        vwap_last_is_nan = vwap_last_is_nan_raw.item() if hasattr(vwap_last_is_nan_raw, "item") else bool(vwap_last_is_nan_raw)
-        if vwap_last_is_nan:
+        
+        # Convert VWAP to numpy array
+        vwap_values = vwap_5_series.values
+        if vwap_values.ndim > 1:
+            vwap_values = vwap_values.flatten()
+        
+        # Check for NaN in VWAP
+        if pd.isna(vwap_values[-1]):
             logger.info(f"{symbol}: VWAP last value is NaN")
             return None
 
-        vwap_5_last = vwap_5_last_val.item() if hasattr(vwap_5_last_val, "item") else float(vwap_5_last_val)
-
-        price_5_val = data_5["close"].iloc[-1]
-        price_5 = price_5_val.item() if hasattr(price_5_val, "item") else float(price_5_val)
+        # Extract scalars
+        vwap_5_last = float(vwap_values[-1])
+        
+        price_5_values = data_5["close"].values
+        price_5 = float(price_5_values[-1])
 
         above_vwap = price_5 > vwap_5_last
         below_vwap = price_5 < vwap_5_last
@@ -379,6 +391,7 @@ class AutoTradingBot:
             "short_ok": (slope_down and below_ema_30 and below_vwap),
             "data_5": data_5
         }
+
 
 
 
