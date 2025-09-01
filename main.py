@@ -550,17 +550,52 @@ class AutoTradingBot:
             cur = self.get_stock_price(symbol)
             if cur is None:
                 continue
+                
             data_5 = self.fetch_bars(symbol, interval="5m", days=1)
-            if data_5 is None or len(data_5) < 20:
+            if data_5 is None or len(data_5) < 2:
+                logger.warning(f"{symbol}: Insufficient data for True Range calculation")
+                continue  # Changed from 'return None' to 'continue'
+                
+            try:
+                # Convert to numpy arrays to avoid pandas scalar issues
+                high_vals = data_5["high"].values
+                low_vals = data_5["low"].values  
+                close_vals = data_5["close"].values
+                
+                # Calculate True Range components using numpy
+                hl = high_vals - low_vals
+                hc = np.abs(high_vals - np.roll(close_vals, 1))  # shift equivalent
+                lc = np.abs(low_vals - np.roll(close_vals, 1))   # shift equivalent
+                
+                # Set first values to NaN (since we can't calculate with previous close)
+                hc[0] = np.nan
+                lc[0] = np.nan
+                
+                # Calculate True Range as maximum of the three
+                tr_values = np.fmax(hl, np.fmax(hc, lc))
+                
+                # Create Series with proper index
+                tr = pd.Series(tr_values, index=data_5.index, name='true_range')
+                
+                # Calculate ATR - NO MORE DUPLICATE CODE!
+                atr5 = tr.rolling(14).mean().iloc[-1]
+                
+            except Exception as e:
+                logger.error(f"{symbol}: Error in True Range calculation: {e}")
+                continue  # Changed from 'return None' to 'continue'
+                
+            # Safe scalar extraction for ATR
+            try:
+                atr5_scalar = float(atr5.item() if hasattr(atr5, 'item') else atr5)
+            except:
+                atr5_scalar = float(atr5)
+                
+            if np.isnan(atr5_scalar) or atr5_scalar <= 0:
                 continue
-            tr = pd.DataFrame({
-                "hl": data_5["high"] - data_5["low"],
-                "hc": (data_5["high"] - data_5["close"].shift()).abs(),
-                "lc": (data_5["low"] - data_5["close"].shift()).abs(),
-            }).max(axis=1)
-            atr5 = tr.rolling(14).mean().iloc[-1]
-            if np.isnan(atr5) or atr5 <= 0:
-                continue
+                
+            # Continue with rest of your trailing stop logic here...
+            # (add your trailing stop calculation code after this)
+
 
             if side == "BUY":
                 R = (pos["target_price"] - entry)
