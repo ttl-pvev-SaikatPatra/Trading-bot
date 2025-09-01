@@ -136,10 +136,10 @@ class AutoTradingBot:
             return None
             
         try:
-            # Convert to numpy arrays to avoid pandas scalar issues
-            high_vals = data_5["high"].values
-            low_vals = data_5["low"].values  
-            close_vals = data_5["close"].values
+            # Convert to numpy arrays and ensure they are 1D
+            high_vals = data_5["high"].values.flatten()
+            low_vals = data_5["low"].values.flatten()
+            close_vals = data_5["close"].values.flatten()
             
             # Calculate True Range components using numpy
             hl = high_vals - low_vals
@@ -160,6 +160,7 @@ class AutoTradingBot:
         except Exception as e:
             logger.error(f"{symbol}: Error in True Range calculation: {e}")
             return None
+
 
     # ========= Auth (CLI) =========
     def authenticate_cli(self):
