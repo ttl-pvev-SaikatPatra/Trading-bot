@@ -494,6 +494,56 @@ def auth_callback():
     sep = "&" if "?" in url else "?"
     return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
 
+@app.route("/cron/auth-check", methods=["POST"])
+def cron_auth_check():
+    """
+    Proactively verify Zerodha auth and warm account info.
+    Returns:
+      {
+        "auth_required": bool,
+        "bot_active": bool,
+        "equity": float,
+        "available_cash": float,
+        "timestamp": str
+      }
+    """
+    try:
+        # Default assumption: not authenticated
+        auth_ok = False
+
+        # Validate current token by calling profile()
+        try:
+            if bot.access_token and bot.kite:
+                bot.kite.profile()  # raises if token is invalid/expired
+                auth_ok = True
+        except Exception:
+            auth_ok = False
+
+        # If authenticated, try to refresh margins (non-blocking best-effort)
+        if auth_ok:
+            try:
+                if hasattr(bot, "refresh_account_info"):
+                    bot.refresh_account_info(force=True)
+            except Exception:
+                pass
+
+        return jsonify({
+            "auth_required": not auth_ok,
+            "bot_active": auth_ok,
+            "equity": getattr(bot, "account_equity", 0.0),
+            "available_cash": getattr(bot, "available_cash", 0.0),
+            "timestamp": now_ist().isoformat()
+        })
+    except Exception as e:
+        # Fail "open" with auth_required true so orchestrator can alert
+        return jsonify({
+            "auth_required": True,
+            "bot_active": False,
+            "error": str(e),
+            "timestamp": now_ist().isoformat()
+        })
+
+
 # ==================== App main ====================
 def _shutdown(*args):
     STOP_EVENT.set()
