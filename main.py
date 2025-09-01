@@ -340,44 +340,49 @@ class AutoTradingBot:
         if len(ema20_30) < 2:
             logger.info(f"{symbol}: EMA20 has < 2 points")
             return None
-        
+
         last_two = ema20_30.iloc[-2:]
-        if last_two.isna().any(axis=None):  # single True/False across all dims
+        if last_two.isna().any():
             logger.info(f"{symbol}: EMA20 last two bars contain NaN")
             return None
 
-        ema_last = float(ema20_30.iloc[-1])
-        ema_prev = float(ema20_30.iloc[-2])
-        price_30 = float(data_30["close"].iloc[-1])
+        # Ensure scalar extraction; prefer .iat for speed if Series is 1D
+        ema_last = ema20_30.iloc[-1].item() if hasattr(ema20_30.iloc[-1], "item") else float(ema20_30.iloc[-1])
+        ema_prev = ema20_30.iloc[-2].item() if hasattr(ema20_30.iloc[-2], "item") else float(ema20_30.iloc[-2])
 
-        
+        # Make sure this is a Series (column) and extract scalar
+        price_30_val = data_30["close"].iloc[-1]
+        price_30 = price_30_val.item() if hasattr(price_30_val, "item") else float(price_30_val)
+
         slope_up = ema_last > ema_prev
         slope_down = ema_last < ema_prev
         above_ema_30 = price_30 > ema_last
         below_ema_30 = price_30 < ema_last
 
-
         # 5m VWAP vs last price (use scalar vwap)
         vwap_5_series = self.compute_vwap(data_5)
-        # Guard when VWAP may be NaN
-        vwap_last_is_nan = bool(pd.isna(vwap_5_series.iloc[-1]))
+
+        # Extract scalar for NaN check without ambiguous truth
+        vwap_5_last_val = vwap_5_series.iloc[-1]
+        vwap_last_is_nan = bool(pd.isna(vwap_5_last_val).item() if hasattr(pd.isna(vwap_5_last_val), "item") else pd.isna(vwap_5_last_val))
         if vwap_last_is_nan:
             logger.info(f"{symbol}: VWAP last value is NaN")
             return None
 
-        vwap_5_last = float(vwap_5_series.iloc[-1])
-        price_5 = float(data_5["close"].iloc[-1])
+        vwap_5_last = vwap_5_last_val.item() if hasattr(vwap_5_last_val, "item") else float(vwap_5_last_val)
 
-        
+        price_5_val = data_5["close"].iloc[-1]
+        price_5 = price_5_val.item() if hasattr(price_5_val, "item") else float(price_5_val)
+
         above_vwap = price_5 > vwap_5_last
         below_vwap = price_5 < vwap_5_last
-
 
         return {
             "long_ok": (slope_up and above_ema_30 and above_vwap),
             "short_ok": (slope_down and below_ema_30 and below_vwap),
             "data_5": data_5
         }
+
 
 
 
