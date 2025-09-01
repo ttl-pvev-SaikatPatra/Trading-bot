@@ -44,8 +44,6 @@ DAILY_LOSS_LIMIT = 500          # Stop if lose ₹500/day
 WEEKLY_LOSS_LIMIT = 1500        # Pause if lose ₹1500/week
 MAX_TRADES_PER_DAY = 2          # Maximum 2 trades per day
 CONSECUTIVE_LOSS_LIMIT = 4      # Pause after 4 losses
-
-
 UNIVERSE_SIZE = int(os.environ.get("UNIVERSE_SIZE", "20"))
 
 BACKTEST_YEARS = int(os.environ.get("BACKTEST_YEARS", "1"))
@@ -126,6 +124,42 @@ class AutoTradingBot:
 
         self._scheduler_started = False
         logger.info("Bot initialized.")
+
+    # ========= ADDED: Reusable True Range Calculation =========
+    def calculate_true_range(self, data_5, symbol=""):
+        """
+        Robust True Range calculation that handles all pandas edge cases
+        Returns: pandas Series with True Range values
+        """
+        if data_5 is None or len(data_5) < 2:
+            logger.warning(f"{symbol}: Insufficient data for True Range calculation")
+            return None
+            
+        try:
+            # Convert to numpy arrays to avoid pandas scalar issues
+            high_vals = data_5["high"].values
+            low_vals = data_5["low"].values  
+            close_vals = data_5["close"].values
+            
+            # Calculate True Range components using numpy
+            hl = high_vals - low_vals
+            hc = np.abs(high_vals - np.roll(close_vals, 1))  # shift equivalent
+            lc = np.abs(low_vals - np.roll(close_vals, 1))   # shift equivalent
+            
+            # Set first values to NaN (since we can't calculate with previous close)
+            hc[0] = np.nan
+            lc[0] = np.nan
+            
+            # Calculate True Range as maximum of the three
+            tr_values = np.fmax(hl, np.fmax(hc, lc))
+            
+            # Create Series with proper index
+            tr = pd.Series(tr_values, index=data_5.index, name='true_range')
+            return tr
+            
+        except Exception as e:
+            logger.error(f"{symbol}: Error in True Range calculation: {e}")
+            return None
 
     # ========= Auth (CLI) =========
     def authenticate_cli(self):
@@ -392,23 +426,29 @@ class AutoTradingBot:
             "data_5": data_5
         }
 
-
-
-
-
     def generate_trade_signal(self, symbol):
         mtf = self.mtf_confirmation(symbol)
         if mtf is None:
             return None
         data_5 = mtf["data_5"]
 
-        tr = pd.DataFrame({
-            "hl": data_5["high"] - data_5["low"],
-            "hc": (data_5["high"] - data_5["close"].shift()).abs(),
-            "lc": (data_5["low"] - data_5["close"].shift()).abs(),
-        }).max(axis=1)
+        # ✅ FIXED: Use the robust True Range calculation
+        tr = self.calculate_true_range(data_5, symbol)
+        if tr is None:
+            logger.warning(f"{symbol}: Could not calculate True Range")
+            return None
+            
+        # Calculate ATR safely
         atr5 = tr.rolling(14).mean().iloc[-1]
-        if pd.isna(atr5) or atr5 <= 0:
+        
+        # Safe scalar extraction for ATR
+        try:
+            atr5_scalar = float(atr5.item() if hasattr(atr5, 'item') else atr5)
+        except:
+            atr5_scalar = float(atr5)
+            
+        if pd.isna(atr5_scalar) or atr5_scalar <= 0:
+            logger.warning(f"{symbol}: Invalid ATR value: {atr5_scalar}")
             return None
 
         last_close = float(data_5["close"].iloc[-1])
@@ -429,11 +469,10 @@ class AutoTradingBot:
         short_break = last_close < prev_24_low * (1 - margin)
 
         if mtf["long_ok"] and long_break:
-            return ("BUY", float(atr5), float(last_close))
+            return ("BUY", float(atr5_scalar), float(last_close))
         if mtf["short_ok"] and short_break:
-            return ("SHORT", float(atr5), float(last_close))
+            return ("SHORT", float(atr5_scalar), float(last_close))
         return None
-
 
     # ========= Sizing / Orders =========
     def _max_positions_for_equity(self, eq):
@@ -528,18 +567,16 @@ class AutoTradingBot:
             }
             self.save_positions()
             logger.info(f"NEW {direction} {symbol} entry={signal_price} qty={qty} stop={stop_price} target={target_price}")
+            # Start rapid monitoring only when the very first live position is present
+            try:
+                if len(self.positions) == 1:
+                    rapid_monitor.start()
+            except Exception as e:
+                logger.warning(f"Could not start rapid monitor: {e}")
             return True
         except Exception as e:
             logger.error(f"Execute error {symbol}: {e}")
             return False
-        # Inside AutoTradingBot.execute_strategy, after self.save_positions() and success log:
-        try:
-            # Start rapid monitoring only when the very first live position is present
-            if len(self.positions) == 1:
-                rapid_monitor.start()
-        except Exception as e:
-            logger.warning(f"self.save_positions()Could not start rapid monitor: {e}")
-
 
     # ========= Trailing stop management =========
     def update_trailing_stops(self):
@@ -552,38 +589,13 @@ class AutoTradingBot:
                 continue
                 
             data_5 = self.fetch_bars(symbol, interval="5m", days=1)
-            if data_5 is None or len(data_5) < 2:
-                logger.warning(f"{symbol}: Insufficient data for True Range calculation")
-                continue  # Changed from 'return None' to 'continue'
+            # ✅ FIXED: Use the robust True Range calculation
+            tr = self.calculate_true_range(data_5, symbol)
+            if tr is None:
+                continue  # Skip this position
                 
-            try:
-                # Convert to numpy arrays to avoid pandas scalar issues
-                high_vals = data_5["high"].values
-                low_vals = data_5["low"].values  
-                close_vals = data_5["close"].values
-                
-                # Calculate True Range components using numpy
-                hl = high_vals - low_vals
-                hc = np.abs(high_vals - np.roll(close_vals, 1))  # shift equivalent
-                lc = np.abs(low_vals - np.roll(close_vals, 1))   # shift equivalent
-                
-                # Set first values to NaN (since we can't calculate with previous close)
-                hc[0] = np.nan
-                lc[0] = np.nan
-                
-                # Calculate True Range as maximum of the three
-                tr_values = np.fmax(hl, np.fmax(hc, lc))
-                
-                # Create Series with proper index
-                tr = pd.Series(tr_values, index=data_5.index, name='true_range')
-                
-                # Calculate ATR - NO MORE DUPLICATE CODE!
-                atr5 = tr.rolling(14).mean().iloc[-1]
-                
-            except Exception as e:
-                logger.error(f"{symbol}: Error in True Range calculation: {e}")
-                continue  # Changed from 'return None' to 'continue'
-                
+            atr5 = tr.rolling(14).mean().iloc[-1]
+
             # Safe scalar extraction for ATR
             try:
                 atr5_scalar = float(atr5.item() if hasattr(atr5, 'item') else atr5)
@@ -592,10 +604,6 @@ class AutoTradingBot:
                 
             if np.isnan(atr5_scalar) or atr5_scalar <= 0:
                 continue
-                
-            # Continue with rest of your trailing stop logic here...
-            # (add your trailing stop calculation code after this)
-
 
             if side == "BUY":
                 R = (pos["target_price"] - entry)
@@ -603,7 +611,7 @@ class AutoTradingBot:
                 start_trailing = move >= self.trailing_start_R * abs(R)
                 if not start_trailing:
                     continue
-                new_stop = max(pos["stop_loss_price"], cur - self.trailing_atr_mult * atr5)
+                new_stop = max(pos["stop_loss_price"], cur - self.trailing_atr_mult * atr5_scalar)
                 if new_stop > pos["stop_loss_price"]:
                     pos["stop_loss_price"] = round2(new_stop)
             else:
@@ -612,7 +620,7 @@ class AutoTradingBot:
                 start_trailing = move >= self.trailing_start_R * abs(R)
                 if not start_trailing:
                     continue
-                new_stop = min(pos["stop_loss_price"], cur + self.trailing_atr_mult * atr5)
+                new_stop = min(pos["stop_loss_price"], cur + self.trailing_atr_mult * atr5_scalar)
                 if new_stop < pos["stop_loss_price"]:
                     pos["stop_loss_price"] = round2(new_stop)
         self.save_positions()
@@ -804,8 +812,8 @@ class RapidPositionMonitor:
                     self.stop()
                     break
 
-                # Call the bot’s own monitoring (targets, stops, EOD logic)
-                self.bot.monitor_positions()  # already does trailing stop + exits [1]
+                # Call the bot's own monitoring (targets, stops, EOD logic)
+                self.bot.monitor_positions()  # already does trailing stop + exits
 
             except Exception as e:
                 logger.error(f"Rapid monitor error: {e}")
@@ -814,7 +822,6 @@ class RapidPositionMonitor:
             time.sleep(self.interval)
 
 rapid_monitor = RapidPositionMonitor(bot, interval_sec=20)
-
 
 # ==================== Flask Routes ====================
 @app.route("/")
@@ -1494,8 +1501,6 @@ def api_backtest_presets():
     ]
     
     return jsonify({"presets": presets})
-
-
 
 @app.route("/backtest/csv", methods=["GET"])
 def backtest_csv():
