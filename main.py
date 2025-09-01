@@ -161,7 +161,6 @@ class AutoTradingBot:
             logger.error(f"{symbol}: Error in True Range calculation: {e}")
             return None
 
-
     # ========= Auth (CLI) =========
     def authenticate_cli(self):
         print("\n🔐 ZERODHA PERSONAL API AUTHENTICATION")
@@ -427,6 +426,7 @@ class AutoTradingBot:
             "data_5": data_5
         }
 
+    # ✅ COMPLETELY FIXED generate_trade_signal function
     def generate_trade_signal(self, symbol):
         mtf = self.mtf_confirmation(symbol)
         if mtf is None:
@@ -452,16 +452,22 @@ class AutoTradingBot:
             logger.warning(f"{symbol}: Invalid ATR value: {atr5_scalar}")
             return None
 
-        last_close = float(data_5["close"].iloc[-1])
-        prev_24_high = float(data_5["high"].rolling(24).max().iloc[-2])
-        prev_24_low = float(data_5["low"].rolling(24).min().iloc[-2])
+        # ✅ FIXED: Use .item() to avoid FutureWarning on scalar extraction
+        last_close_raw = data_5["close"].iloc[-1]
+        last_close = float(last_close_raw.item() if hasattr(last_close_raw, 'item') else last_close_raw)
+        
+        prev_24_high_raw = data_5["high"].rolling(24).max().iloc[-2]
+        prev_24_high = float(prev_24_high_raw.item() if hasattr(prev_24_high_raw, 'item') else prev_24_high_raw)
+        
+        prev_24_low_raw = data_5["low"].rolling(24).min().iloc[-2]
+        prev_24_low = float(prev_24_low_raw.item() if hasattr(prev_24_low_raw, 'item') else prev_24_low_raw)
 
         daily_atr_pct = 1.0
         try:
             feats = self.universe_features
             row = feats[feats["Symbol"] == f"{symbol}.NS"]
             if not row.empty:
-                daily_atr_pct = float(row["ATR_pct"].values)
+                daily_atr_pct = float(row["ATR_pct"].values[0])
         except Exception:
             pass
 
