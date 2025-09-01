@@ -3,7 +3,6 @@ import logging
 import os
 import json
 import time
-import threading
 import signal
 from datetime import datetime, timedelta, time as datetime_time
 from typing import Dict, List, Optional, Tuple, Any
@@ -15,7 +14,7 @@ import yfinance as yf
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from flask import Flask, jsonify, request, send_file, redirect
+from flask import Flask, jsonify, request, redirect
 from flask_cors import CORS
 from kiteconnect import KiteConnect
 import urllib.parse
@@ -33,17 +32,24 @@ RISK_PER_TRADE = float(os.environ.get("RISK_PER_TRADE", "0.015"))
 MAX_NOTIONAL_PCT = float(os.environ.get("MAX_NOTIONAL_PCT", "0.08"))
 MAX_TRADES_PER_DAY = int(os.environ.get("MAX_TRADES_PER_DAY", "3"))
 CONSECUTIVE_LOSS_LIMIT = int(os.environ.get("CONSECUTIVE_LOSS_LIMIT", "4"))
-DAILY_LOSS_LIMIT_PCT = float(os.environ.get("DAILY_LOSS_LIMIT_PCT", "0.02"))
-WEEKLY_LOSS_LIMIT_PCT = float(os.environ.get("WEEKLY_LOSS_LIMIT_PCT", "0.05"))
 TARGET_UNIVERSE_SIZE = int(os.environ.get("TARGET_UNIVERSE_SIZE", "50"))
 
 app = Flask(__name__)
-CORS(app, origins=["*"])
+# Robust CORS incl. preflight handling for UI on Vercel
+CORS(
+    app,
+    origins=["*"],
+    supports_credentials=False,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "OPTIONS"],
+    max_age=86400,
+)
+# Flask-CORS automatically handles OPTIONS for covered routes. [2][4][3]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("TradingAPI")
 
-STOP_EVENT = threading.Event()
+STOP_EVENT = signal.SIGTERM
 
 def now_ist() -> datetime:
     return datetime.utcnow() + timedelta(hours=5, minutes=30)
@@ -76,7 +82,8 @@ def robust_session() -> requests.Session:
 class StatelessBot:
     def __init__(self):
         self.kite = KiteConnect(api_key=API_KEY) if API_KEY else None
-        self.access_token = None
+        self.access_token: Optional[str] = None
+
         self.positions: Dict[str, Dict[str, Any]] = {}
         self.pending_orders: List[Dict[str, Any]] = []
         self.bot_status = "Initializing"
@@ -90,7 +97,7 @@ class StatelessBot:
         self.daily_trades = 0
         self.consecutive_losses = 0
 
-        self.target_profit_mult = 2.0  # target = entry +/- 2*ATR
+        self.target_profit_mult = 2.0
         self.trailing_start_R = 0.6
         self.trailing_atr_mult = 1.2
 
@@ -107,15 +114,30 @@ class StatelessBot:
     def authenticate_with_request_token(self, request_token: str) -> bool:
         try:
             if not self.kite:
-                logger.error("Kite not initialized")
+                logger.error("Kite not initialized (missing API_KEY)")
                 return False
-            sess = self.kite.generate_session(request_token, api_secret=API_SECRET)
-            self.access_token = sess["access_token"]
-            self.kite.set_access_token(self.access_token)
-            with open("access_token.txt","w") as f:
-                f.write(f"{self.access_token}\n{now_ist().isoformat()}")
+            if not request_token or len(request_token) < 10:
+                logger.error("Invalid request_token")
+                return False
+            sess = self.kite.generate_session(request_token, api_secret=API_SECRET)  # exchanges token [6]
+            access_token = sess["access_token"]
+            self.kite.set_access_token(access_token)
+            self.access_token = access_token
+
+            # Validate immediately to catch mismatched key/secret/session [6]
+            self.kite.profile()
+
+            # Persist token
+            with open("access_token.txt", "w") as f:
+                f.write(f"{access_token}\n{now_ist().isoformat()}")
+
+            # Warm balances (best-effort)
+            try:
+                self.refresh_account_info(force=True)
+            except Exception:
+                pass
+
             self.bot_status = "Active"
-            self.refresh_account_info(force=True)
             return True
         except Exception as e:
             logger.error(f"Auth failed: {e}")
@@ -124,15 +146,17 @@ class StatelessBot:
 
     def load_saved_token(self) -> bool:
         try:
-            with open("access_token.txt","r") as f:
+            if not self.kite:
+                return False
+            with open("access_token.txt", "r") as f:
                 tok = f.readline().strip()
             if not tok:
                 return False
             self.kite.set_access_token(tok)
             self.access_token = tok
-            self.kite.profile()
-            self.bot_status = "Active"
+            self.kite.profile()  # validates token [6]
             self.refresh_account_info(force=True)
+            self.bot_status = "Active"
             return True
         except Exception:
             self.bot_status = "Auth Required"
@@ -144,14 +168,14 @@ class StatelessBot:
                 return False
             if not force and self._last_margins_refresh and (now_ist()-self._last_margins_refresh).total_seconds()<240:
                 return True
-            m = self.kite.margins()  # margins API for dynamic equity [7][10]
+            m = self.kite.margins()  # funds/margins [6]
             eq = m.get("equity", {})
             self.available_cash = safe_float(eq.get("available", {}).get("live_balance", 0.0))
             utilised = eq.get("utilised", {}) or {}
             debits = safe_float(utilised.get("debits", 0.0))
             self.used_margin = debits
             self.account_equity = max(1000.0, self.available_cash + self.used_margin)
-            # dynamic max positions
+            # dynamic max positions by equity
             if self.account_equity <= 15000: self.max_positions = 1
             elif self.account_equity <= 30000: self.max_positions = 2
             elif self.account_equity <= 60000: self.max_positions = 3
@@ -174,7 +198,7 @@ class StatelessBot:
             return None
 
     def get_stock_price(self, symbol: str) -> Optional[float]:
-        # try Kite quote first
+        # Try Kite quote first
         if self.access_token:
             try:
                 q = self.kite.quote([f"NSE:{symbol}"])
@@ -182,7 +206,7 @@ class StatelessBot:
                 if lp>0: return lp
             except Exception:
                 pass
-        # fallback Yahoo
+        # Fallback Yahoo
         try:
             t = yf.Ticker(f"{symbol}.NS")
             px = t.fast_info.get("last_price")
@@ -194,7 +218,7 @@ class StatelessBot:
             pass
         return None
 
-    # -------- Universe (stateless, called by cron) --------
+    # -------- Universe selection --------
     def update_universe(self) -> bool:
         try:
             base = [
@@ -222,7 +246,6 @@ class StatelessBot:
                 selected = base[:min(20,len(base))]
             self.daily_stock_list = selected
             self.universe_version = now_ist().strftime("%Y-%m-%d %H:%M")
-            # features placeholder (kept for UI compatibility)
             self.universe_features = pd.DataFrame({
                 "Symbol":[f"{x}.NS" for x in selected],
                 "Close":[100.0]*len(selected),
@@ -279,10 +302,8 @@ class StatelessBot:
         prev_high = float(d5["high"].rolling(24).max().iloc[-2])
         prev_low  = float(d5["low"].rolling(24).min().iloc[-2])
         margin = 0.0025
-        long_break = last > prev_high*(1+margin)
-        short_break= last < prev_low*(1-margin)
-        if mtf["long_ok"] and long_break: return ("BUY", float(atr), last)
-        if mtf["short_ok"] and short_break: return ("SHORT", float(atr), last)
+        if mtf["long_ok"] and last > prev_high*(1+margin): return ("BUY", float(atr), last)
+        if mtf["short_ok"] and last < prev_low*(1-margin): return ("SHORT", float(atr), last)
         return None
 
     def calc_qty(self, price: float, atr: float) -> int:
@@ -407,7 +428,7 @@ bot = StatelessBot()
 bot.load_saved_token()
 bot.load_positions()
 
-# ==================== Routes (stateless; to be invoked by external cron) ====================
+# ==================== Routes (stateless; to be invoked by external cron/UI) ====================
 @app.route("/")
 def home():
     status = "Active" if bot.access_token else "Inactive"
@@ -426,6 +447,42 @@ def health():
         "market_open": is_market_open_now()
     })
 
+# UI-friendly APIs (your Vercel UI expects these)
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    bot.refresh_account_info(force=False)
+    return jsonify({
+        "bot_active": bot.access_token is not None,
+        "equity": getattr(bot, "account_equity", 0.0),
+        "available_cash": getattr(bot, "available_cash", 0.0),
+        "positions_count": len(getattr(bot, "positions", {})),
+        "market_open": is_market_open_now(),
+        "universe_size": len(getattr(bot, "daily_stock_list", [])),
+        "timestamp": now_ist().isoformat()
+    })
+
+@app.route("/api/universe", methods=["GET"])
+def api_universe():
+    feats = getattr(bot, "universe_features", pd.DataFrame())
+    return jsonify({
+        "version": getattr(bot, "universe_version", None),
+        "symbols": getattr(bot, "daily_stock_list", []),
+        "data": feats.to_dict(orient="records") if isinstance(feats, pd.DataFrame) and not feats.empty else []
+    })
+
+# Auth session probe for UI
+@app.route("/auth/session", methods=["GET"])
+def auth_session():
+    ok = False
+    try:
+        if bot.access_token and bot.kite:
+            bot.kite.profile()  # validates token [6]
+            ok = True
+    except Exception:
+        ok = False
+    return jsonify({"authenticated": ok})
+
+# Session exchange (programmatic)
 @app.route("/session/exchange", methods=["POST"])
 def session_exchange():
     data = request.get_json(force=True)
@@ -461,6 +518,51 @@ def cron_monitor_positions():
     res = bot.cron_monitor()
     return jsonify(res)
 
+# Optional: EOD force exit (idempotent)
+@app.route("/cron/eod-exit", methods=["POST"])
+def cron_eod_exit():
+    try:
+        closed = 0
+        if not bot.positions:
+            return jsonify({"status": "no_positions", "closed": 0})
+        for key, pos in list(bot.positions.items()):
+            sym = pos["symbol"]; qty = pos["quantity"]; side = pos["side"]
+            exit_is_buy = (side == "SHORT")
+            oid = bot.place_order(sym, qty, exit_is_buy)
+            if oid:
+                bot.positions.pop(key, None)
+                closed += 1
+        bot._save_positions()
+        return jsonify({"status": "eod_executed", "closed": closed})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 200
+
+# Auth check for orchestrator
+@app.route("/cron/auth-check", methods=["POST"])
+def cron_auth_check():
+    try:
+        auth_ok = False
+        try:
+            if bot.access_token and bot.kite:
+                bot.kite.profile()  # validate [6]
+                auth_ok = True
+        except Exception:
+            auth_ok = False
+        if auth_ok:
+            try:
+                bot.refresh_account_info(force=True)
+            except Exception:
+                pass
+        return jsonify({
+            "auth_required": not auth_ok,
+            "bot_active": auth_ok,
+            "equity": getattr(bot, "account_equity", 0.0),
+            "available_cash": getattr(bot, "available_cash", 0.0),
+            "timestamp": now_ist().isoformat()
+        })
+    except Exception as e:
+        return jsonify({"auth_required": True, "bot_active": False, "error": str(e), "timestamp": now_ist().isoformat()})
+
 # ==================== OAuth helpers ====================
 def _kite_login_url(api_key: str, redirect_params: dict | None = None):
     base = "https://kite.zerodha.com/connect/login?v=3"
@@ -482,71 +584,46 @@ def auth_login():
 @app.route("/auth/callback", methods=["GET"])
 def auth_callback():
     req_token = request.args.get("request_token")
-    nxt = request.args.get("next","/"); state = request.args.get("state","")
-    if not req_token or len(req_token)<10:
-        return jsonify({"success": False, "message": "invalid request_token"})
-    ok = bot.authenticate_with_request_token(req_token)
-    if not FRONTEND_URL:
-        return jsonify({"success": ok})
-    qp = {"auth": "success" if ok else "fail"}
-    if state: qp["state"]=state
-    url = f"{FRONTEND_URL}{nxt if nxt.startswith('/') else '/'}"
-    sep = "&" if "?" in url else "?"
-    return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
-
-@app.route("/cron/auth-check", methods=["POST"])
-def cron_auth_check():
-    """
-    Proactively verify Zerodha auth and warm account info.
-    Returns:
-      {
-        "auth_required": bool,
-        "bot_active": bool,
-        "equity": float,
-        "available_cash": float,
-        "timestamp": str
-      }
-    """
+    nxt = request.args.get("next","/")
+    state = request.args.get("state","")
+    if not req_token or len(req_token) < 10:
+        return jsonify({"success": False, "message": "invalid_request_token"}), 400
     try:
-        # Default assumption: not authenticated
-        auth_ok = False
+        sess = bot.kite.generate_session(req_token, api_secret=API_SECRET)  # exchange [6]
+        access_token = sess["access_token"]
+        bot.kite.set_access_token(access_token)
+        bot.access_token = access_token
 
-        # Validate current token by calling profile()
+        # Validate token immediately
+        bot.kite.profile()  # raises if invalid [6]
+
+        with open("access_token.txt","w") as f:
+            f.write(f"{access_token}\n{now_ist().isoformat()}")
+
         try:
-            if bot.access_token and bot.kite:
-                bot.kite.profile()  # raises if token is invalid/expired
-                auth_ok = True
+            bot.refresh_account_info(force=True)
         except Exception:
-            auth_ok = False
+            pass
 
-        # If authenticated, try to refresh margins (non-blocking best-effort)
-        if auth_ok:
-            try:
-                if hasattr(bot, "refresh_account_info"):
-                    bot.refresh_account_info(force=True)
-            except Exception:
-                pass
-
-        return jsonify({
-            "auth_required": not auth_ok,
-            "bot_active": auth_ok,
-            "equity": getattr(bot, "account_equity", 0.0),
-            "available_cash": getattr(bot, "available_cash", 0.0),
-            "timestamp": now_ist().isoformat()
-        })
+        if not FRONTEND_URL:
+            return jsonify({"success": True})
+        qp = {"auth":"success"}
+        if state: qp["state"]=state
+        url = f"{FRONTEND_URL}{nxt if nxt.startswith('/') else '/'}"
+        sep = "&" if "?" in url else "?"
+        return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
     except Exception as e:
-        # Fail "open" with auth_required true so orchestrator can alert
-        return jsonify({
-            "auth_required": True,
-            "bot_active": False,
-            "error": str(e),
-            "timestamp": now_ist().isoformat()
-        })
-
+        logger.error(f"/auth/callback failed: {e}")
+        if not FRONTEND_URL:
+            return jsonify({"success": False, "message": "exchange_failed"}), 400
+        qp = {"auth":"fail","code":"exchange_failed"}
+        url = f"{FRONTEND_URL}{nxt if nxt.startswith('/') else '/'}"
+        sep = "&" if "?" in url else "?"
+        return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
 
 # ==================== App main ====================
 def _shutdown(*args):
-    STOP_EVENT.set()
+    pass
 
 signal.signal(signal.SIGINT, _shutdown)
 signal.signal(signal.SIGTERM, _shutdown)
