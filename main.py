@@ -18,7 +18,7 @@ from flask import Flask, jsonify, request, redirect
 from flask_cors import CORS
 from kiteconnect import KiteConnect
 import urllib.parse
-from urllib.parse import unquote  # for safe request_token decoding
+from urllib.parse import unquote  # decode request_token safely
 
 # ==================== Config & Globals ====================
 IST = pytz.timezone("Asia/Kolkata")
@@ -35,8 +35,11 @@ MAX_TRADES_PER_DAY = int(os.environ.get("MAX_TRADES_PER_DAY", "3"))
 CONSECUTIVE_LOSS_LIMIT = int(os.environ.get("CONSECUTIVE_LOSS_LIMIT", "4"))
 TARGET_UNIVERSE_SIZE = int(os.environ.get("TARGET_UNIVERSE_SIZE", "50"))
 
+# Track request_tokens to enforce local single-use (defense-in-depth)
+USED_TOKENS = set()
+
 app = Flask(__name__)
-# Robust CORS incl. preflight handling for UI on Vercel
+# Robust CORS incl. preflight for Vercel UI [2][3]
 CORS(
     app,
     origins=["*"],
@@ -44,7 +47,7 @@ CORS(
     allow_headers=["Content-Type", "Authorization"],
     methods=["GET", "POST", "OPTIONS"],
     max_age=86400,
-)  # Flask-CORS handles OPTIONS on covered routes [12][13]
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("TradingAPI")
@@ -76,7 +79,7 @@ def robust_session() -> requests.Session:
     s.headers.update({"User-Agent":"Mozilla/5.0"})
     return s
 
-# Normalize double slashes and trailing slash consistently
+# Normalize double slashes and trailing slash for stable routing [4]
 @app.before_request
 def normalize_path():
     p = request.path
@@ -85,7 +88,7 @@ def normalize_path():
     if p != '/' and p.endswith('/'):
         p = p[:-1]
     if p != request.path:
-        return redirect(p, code=301)  # normalize to avoid //api/status issues [11]
+        return redirect(p, code=301)
 
 # ==================== Stateless Bot Core ====================
 class StatelessBot:
@@ -129,8 +132,8 @@ class StatelessBot:
                 logger.error("Invalid request_token")
                 return False
 
-            request_token = unquote(request_token)  # defensive decode [10]
-            sess = self.kite.generate_session(request_token, api_secret=API_SECRET)  # exchange [10]
+            request_token = unquote(request_token)  # defensive decode [1]
+            sess = self.kite.generate_session(request_token, api_secret=API_SECRET)  # exchange [1]
             access_token = sess.get("access_token")
             if not access_token:
                 logger.error("No access_token in exchange response")
@@ -139,7 +142,7 @@ class StatelessBot:
             self.kite.set_access_token(access_token)
             self.access_token = access_token
 
-            # Validate immediately (catches api key mismatch or stale token) [10]
+            # Validate immediately (catches api key mismatch or stale token) [1]
             self.kite.profile()
 
             # Persist token
@@ -172,7 +175,7 @@ class StatelessBot:
                 return False
             self.kite.set_access_token(tok)
             self.access_token = tok
-            self.kite.profile()  # validate [10]
+            self.kite.profile()  # validate [1]
             self.refresh_account_info(force=True)
             self.bot_status = "Active"
             return True
@@ -186,7 +189,7 @@ class StatelessBot:
                 return False
             if not force and self._last_margins_refresh and (now_ist()-self._last_margins_refresh).total_seconds()<240:
                 return True
-            m = self.kite.margins()  # /user/margins [10]
+            m = self.kite.margins()  # /user/margins [1]
             eq = m.get("equity", {})
             self.available_cash = safe_float(eq.get("available", {}).get("live_balance", 0.0))
             utilised = eq.get("utilised", {}) or {}
@@ -274,7 +277,7 @@ class StatelessBot:
             logger.error(f"Universe update failed: {e}")
             return False
 
-    # -------- Signals / Risk (unchanged for brevity) --------
+    # -------- Signals / Risk --------
     def ema(self, series: pd.Series, n: int) -> pd.Series:
         return series.ewm(span=n, adjust=False).mean()
 
@@ -463,7 +466,7 @@ def health():
         "market_open": is_market_open_now()
     })
 
-# UI-friendly APIs
+# UI-friendly APIs (for Vercel UI)
 @app.route("/api/status", methods=["GET"])
 def api_status():
     bot.refresh_account_info(force=False)
@@ -491,13 +494,13 @@ def auth_session():
     ok = False
     try:
         if bot.access_token and bot.kite:
-            bot.kite.profile()  # validates token [10]
+            bot.kite.profile()  # validate [1]
             ok = True
     except Exception:
         ok = False
     return jsonify({"authenticated": ok})
 
-# Session exchange (programmatic)
+# Programmatic session exchange
 @app.route("/session/exchange", methods=["POST"])
 def session_exchange():
     data = request.get_json(force=True)
@@ -557,7 +560,7 @@ def cron_auth_check():
         auth_ok = False
         try:
             if bot.access_token and bot.kite:
-                bot.kite.profile()  # validate [10]
+                bot.kite.profile()  # validate [1]
                 auth_ok = True
         except Exception:
             auth_ok = False
@@ -582,7 +585,16 @@ def _kite_login_url(api_key: str, redirect_params: dict | None = None):
     qp = {"api_key": api_key}
     if redirect_params:
         qp["redirect_params"] = urllib.parse.quote_plus(urllib.parse.urlencode(redirect_params))
-    return f"{base}&{urllib.parse.urlencode(qp)}"  # login URL spec [10]
+    return f"{base}&{urllib.parse.urlencode(qp)}"  # Zerodha Connect login URL [1]
+
+def _auth_fail_redirect(nxt, state, code):
+    if not FRONTEND_URL:
+        return jsonify({"success": False, "code": code}), 400
+    qp = {"auth":"fail","code":code}
+    if state: qp["state"]=state
+    url = f"{FRONTEND_URL}{nxt if nxt.startswith('/') else '/'}"
+    sep = "&" if "?" in url else "?"
+    return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
 
 @app.route("/auth/login", methods=["GET"])
 def auth_login():
@@ -602,21 +614,34 @@ def auth_callback():
     if not req_token or len(req_token) < 10:
         return jsonify({"success": False, "message": "invalid_request_token"}), 400
     try:
+        global USED_TOKENS
         req_token = unquote(req_token)
-        logger.info(f"Exchanging request_token; API key starts: {str(API_KEY)[:6]}***")
-        sess = bot.kite.generate_session(req_token, api_secret=API_SECRET)  # exchange [10]
+
+        # Enforce local single-use to prevent accidental reuse while debugging/logins [5]
+        if req_token in USED_TOKENS:
+            logger.error("Rejected reused request_token")
+            return _auth_fail_redirect(nxt, state, "token_reused")
+        USED_TOKENS.add(req_token)
+
+        logger.info(f"Exchanging token; API key starts: {str(API_KEY)[:6]}***")
+        sess = bot.kite.generate_session(req_token, api_secret=API_SECRET)  # exchange [1]
         access_token = sess.get("access_token")
         if not access_token:
-            raise Exception("no_access_token_from_kite")
+            return _auth_fail_redirect(nxt, state, "no_access_token")
 
         bot.kite.set_access_token(access_token)
         bot.access_token = access_token
 
-        # Validate immediately (if invalid, fail deterministically) [10]
-        logger.info("Validating profile() with new access_token")
-        bot.kite.profile()
+        # Validate immediately; fail deterministically on error [1]
+        try:
+            prof = bot.kite.profile()
+            logger.info(f"profile user_id: {prof.get('user_id','?')}")
+        except Exception as e:
+            logger.error(f"profile() failed: {e}")
+            bot.access_token = None
+            return _auth_fail_redirect(nxt, state, "profile_failed")
 
-        # Persist token and warm
+        # Persist token and warm balances
         try:
             with open("access_token.txt","w") as f:
                 f.write(f"{access_token}\n{now_ist().isoformat()}")
@@ -636,13 +661,21 @@ def auth_callback():
         return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
 
     except Exception as e:
-        logger.error(f"/auth/callback failed: {e}")
-        if not FRONTEND_URL:
-            return jsonify({"success": False, "message": "exchange_or_validate_failed"}), 400
-        qp = {"auth":"fail","code":"exchange_or_validate_failed"}
-        url = f"{FRONTEND_URL}{nxt if nxt.startswith('/') else '/'}"
-        sep = "&" if "?" in url else "?"
-        return redirect(url + sep + urllib.parse.urlencode(qp), code=302)
+        logger.error(f"callback exchange error: {e}")
+        return _auth_fail_redirect(nxt, state, "exchange_error")
+
+# Optional: flush server token if FE stuck
+@app.route("/auth/flush", methods=["POST"])
+def auth_flush():
+    try:
+        bot.access_token = None
+        try:
+            os.remove("access_token.txt")
+        except Exception:
+            pass
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 200
 
 # ==================== App main ====================
 def _shutdown(*args):
