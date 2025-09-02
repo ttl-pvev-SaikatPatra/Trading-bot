@@ -265,7 +265,6 @@ class StatelessBot:
                     h = yf.Ticker(f"{s}.NS").history(period="5d", interval="1d")
                     if h.empty or len(h) < 3:
                         continue
-                    # Coerce numeric, skip bad rows
                     h["Volume"] = pd.to_numeric(h["Volume"], errors="coerce")
                     h["Close"] = pd.to_numeric(h["Close"], errors="coerce")
                     h = h.dropna(subset=["Volume","Close"])
@@ -285,18 +284,30 @@ class StatelessBot:
 
             self.daily_stock_list = selected
             self.universe_version = now_ist().strftime("%Y-%m-%d %H:%M")
-            # Build minimal features for UI
+            # Build minimal features for UI; values will be filled by scanners later
             self.universe_features = pd.DataFrame({
                 "Symbol": [f"{x}.NS" for x in selected],
                 "Close": [np.nan] * len(selected),
                 "ATR_pct": [np.nan] * len(selected),
                 "Score": [1.0] * len(selected)
             })
+
+            # Optional persistence to survive restarts (safe no-op on Render)
+            try:
+                with open("universe.json","w") as f:
+                    json.dump({
+                        "version": self.universe_version,
+                        "symbols": self.daily_stock_list,
+                        "data": self.universe_features.to_dict(orient="records")
+                    }, f)
+            except Exception as e:
+                logger.warning(f"Persist universe failed: {e}")
+
             return True
         except Exception as e:
             logger.error(f"Universe update failed: {e}")
-            # Keep previous universe if any
             return bool(self.daily_stock_list)
+
 
 
     # -------- Signals / Risk --------
