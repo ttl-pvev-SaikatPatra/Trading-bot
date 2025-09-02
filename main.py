@@ -263,27 +263,41 @@ class StatelessBot:
             for s in base:
                 try:
                     h = yf.Ticker(f"{s}.NS").history(period="5d", interval="1d")
-                    if h.empty or len(h)<3: continue
-                    if h["Volume"].mean()>100000 and 50<=float(h["Close"].iloc[-1])<=5000:
+                    if h.empty or len(h) < 3:
+                        continue
+                    # Coerce numeric, skip bad rows
+                    h["Volume"] = pd.to_numeric(h["Volume"], errors="coerce")
+                    h["Close"] = pd.to_numeric(h["Close"], errors="coerce")
+                    h = h.dropna(subset=["Volume","Close"])
+                    if h.empty:
+                        continue
+                    if h["Volume"].mean() > 100000 and 50 <= float(h["Close"].iloc[-1]) <= 5000:
                         selected.append(s)
-                    if len(selected)>=TARGET_UNIVERSE_SIZE: break
+                    if len(selected) >= TARGET_UNIVERSE_SIZE:
+                        break
                 except Exception:
                     continue
                 time.sleep(0.05)
-            if len(selected)<10:
-                selected = base[:min(20,len(base))]
+
+            # Fallback if selection too small
+            if len(selected) < 10:
+                selected = base[:min(20, len(base))]
+
             self.daily_stock_list = selected
             self.universe_version = now_ist().strftime("%Y-%m-%d %H:%M")
+            # Build minimal features for UI
             self.universe_features = pd.DataFrame({
-                "Symbol":[f"{x}.NS" for x in selected],
-                "Close":[100.0]*len(selected),
-                "ATR_pct":[2.0]*len(selected),
-                "Score":[1.0]*len(selected)
+                "Symbol": [f"{x}.NS" for x in selected],
+                "Close": [np.nan] * len(selected),
+                "ATR_pct": [np.nan] * len(selected),
+                "Score": [1.0] * len(selected)
             })
             return True
         except Exception as e:
             logger.error(f"Universe update failed: {e}")
-            return False
+            # Keep previous universe if any
+            return bool(self.daily_stock_list)
+
 
     # -------- Signals / Risk --------
     def ema(self, series: pd.Series, n: int) -> pd.Series:
@@ -360,6 +374,8 @@ class StatelessBot:
             return None
 
         last = float(d5["close"].iloc[-1])
+        if not np.isfinite(last):
+            return None
 
         # 24-bar extremes with min_periods to avoid NaN; use previous completed bar
         highs_24 = d5["high"].rolling(24, min_periods=24).max()
