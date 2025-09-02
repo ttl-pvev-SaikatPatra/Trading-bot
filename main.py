@@ -295,7 +295,7 @@ class StatelessBot:
         except Exception:
             return None
 
-    def mtf_confirmation(self, symbol: str) -> Optional[Dict[str, Any]]:
+    tf_confirmation(self, symbol: str) -> Optional[Dict[str, Any]]:
         d30 = self.fetch_bars(symbol, "30m", 10)
         d5 = self.fetch_bars(symbol, "5m", 2)
         if d30 is None or d5 is None or len(d30)<40 or len(d5)<40:
@@ -304,27 +304,85 @@ class StatelessBot:
         if len(ema20)<2 or pd.isna(ema20.iloc[-2:]).any(): return None
         up = d30["close"].iloc[-1] > ema20.iloc[-1]
         down = d30["close"].iloc[-1] < ema20.iloc[-1]
-        vwap = (d5["close"]*d5["volume"]).cumsum()/d5["volume"].cumsum()
+        vwap = (def md5["close"]*d5["volume"]).cumsum()/d5["volume"].cumsum()
         if pd.isna(vwap.iloc[-1]): return None
         above_vwap = d5["close"].iloc[-1] > vwap.iloc[-1]
         below_vwap = d5["close"].iloc[-1] < vwap.iloc[-1]
         return {"long_ok": up and above_vwap, "short_ok": down and below_vwap, "d5": d5}
 
-    def generate_signal(self, symbol: str) -> Optional[Tuple[str,float,float]]:
+
+    def mtf_confirmation(self, symbol: str) -> Optional[Dict[str, Any]]:
+        d30 = self.fetch_bars(symbol, "30m", 10)
+        d5 = self.fetch_bars(symbol, "5m", 2)
+
+        # Basic shape checks
+        if d30 is None or d5 is None or len(d30) < 40 or len(d5) < 40:
+            return None
+
+        # Compute EMA on the 30m close series
+        ema20 = self.ema(d30["close"], 20)
+
+        # Make sure the last 2 ema20 values exist and are finite
+        tail2 = ema20.iloc[-2:]
+        if len(tail2) < 2 or tail2.isna().any():
+            return None
+
+        # Scalar comparisons only (avoid Series truth ambiguity)
+        last_close_30 = float(d30["close"].iloc[-1])
+        last_ema20 = float(ema20.iloc[-1])
+        up = last_close_30 > last_ema20
+        down = last_close_30 < last_ema20
+
+        # VWAP on 5m with divide-by-zero protection
+        vol = d5["volume"].astype(float)
+        px = d5["close"].astype(float)
+        cum_vol = vol.cumsum().replace(0, np.nan)
+        vwap = (px.mul(vol)).cumsum() / cum_vol
+        if pd.isna(vwap.iloc[-1]):
+            return None
+
+        last_close_5 = float(px.iloc[-1])
+        last_vwap = float(vwap.iloc[-1])
+        above_vwap = last_close_5 > last_vwap
+        below_vwap = last_close_5 < last_vwap
+
+        return {"long_ok": bool(up and above_vwap), "short_ok": bool(down and below_vwap), "d5": d5}
+
+    def generate_signal(self, symbol: str) -> Optional[Tuple[str, float, float]]:
         mtf = self.mtf_confirmation(symbol)
-        if not mtf: return None
+        if not mtf:
+            return None
+
         d5 = mtf["d5"]
+
         tr = self.true_range(d5)
-        if tr is None: return None
-        atr = tr.rolling(14).mean().iloc[-1]
-        if pd.isna(atr) or atr<=0: return None
+        if tr is None or tr.isna().all():
+            return None
+
+        atr_series = tr.rolling(14, min_periods=14).mean()
+        atr = atr_series.iloc[-1]
+        if pd.isna(atr) or atr <= 0:
+            return None
+
         last = float(d5["close"].iloc[-1])
-        prev_high = float(d5["high"].rolling(24).max().iloc[-2])
-        prev_low  = float(d5["low"].rolling(24).min().iloc[-2])
+
+        # 24-bar extremes with min_periods to avoid NaN
+        highs_24 = d5["high"].rolling(24, min_periods=24).max()
+        lows_24 = d5["low"].rolling(24, min_periods=24).min()
+        # Use the previous completed bar for breakouts
+        if pd.isna(highs_24.iloc[-2]) or pd.isna(lows_24.iloc[-2]):
+            return None
+
+        prev_high = float(highs_24.iloc[-2])
+        prev_low = float(lows_24.iloc[-2])
+
         margin = 0.0025
-        if mtf["long_ok"] and last > prev_high*(1+margin): return ("BUY", float(atr), last)
-        if mtf["short_ok"] and last < prev_low*(1-margin): return ("SHORT", float(atr), last)
+        if mtf["long_ok"] and last > prev_high * (1 + margin):
+            return ("BUY", float(atr), last)
+        if mtf["short_ok"] and last < prev_low * (1 - margin):
+            return ("SHORT", float(atr), last)
         return None
+
 
     def calc_qty(self, price: float, atr: float) -> int:
         self.refresh_account_info()
