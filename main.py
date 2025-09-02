@@ -295,21 +295,6 @@ class StatelessBot:
         except Exception:
             return None
 
-    tf_confirmation(self, symbol: str) -> Optional[Dict[str, Any]]:
-        d30 = self.fetch_bars(symbol, "30m", 10)
-        d5 = self.fetch_bars(symbol, "5m", 2)
-        if d30 is None or d5 is None or len(d30)<40 or len(d5)<40:
-            return None
-        ema20 = self.ema(d30["close"],20)
-        if len(ema20)<2 or pd.isna(ema20.iloc[-2:]).any(): return None
-        up = d30["close"].iloc[-1] > ema20.iloc[-1]
-        down = d30["close"].iloc[-1] < ema20.iloc[-1]
-        vwap = (def md5["close"]*d5["volume"]).cumsum()/d5["volume"].cumsum()
-        if pd.isna(vwap.iloc[-1]): return None
-        above_vwap = d5["close"].iloc[-1] > vwap.iloc[-1]
-        below_vwap = d5["close"].iloc[-1] < vwap.iloc[-1]
-        return {"long_ok": up and above_vwap, "short_ok": down and below_vwap, "d5": d5}
-
     def mtf_confirmation(self, symbol: str) -> Optional[Dict[str, Any]]:
         d30 = self.fetch_bars(symbol, "30m", 10)
         d5 = self.fetch_bars(symbol, "5m", 2)
