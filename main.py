@@ -349,6 +349,7 @@ class StatelessBot:
         return {"long_ok": bool(up and above_vwap), "short_ok": bool(down and below_vwap), "d5": d5}
 
 
+
     def generate_signal(self, symbol: str) -> Optional[Tuple[str, float, float]]:
         mtf = self.mtf_confirmation(symbol)
         if not mtf:
@@ -381,6 +382,7 @@ class StatelessBot:
         if mtf["short_ok"] and last < prev_low * (1 - margin):
             return ("SHORT", float(atr), last)
         return None
+
 
 
 
