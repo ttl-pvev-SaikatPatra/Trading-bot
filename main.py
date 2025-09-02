@@ -211,11 +211,19 @@ class StatelessBot:
     def fetch_bars(self, symbol: str, interval="5m", days=2) -> Optional[pd.DataFrame]:
         try:
             df = yf.download(f"{symbol}.NS", period=f"{days}d", interval=interval, auto_adjust=False, progress=False)
-            if df.empty: return None
+            if df.empty:
+                return None
             df = df.rename(columns=str.lower).reset_index()
-            return df
+            # Coerce numerics and drop rows with missing key fields
+            for c in ("open","high","low","close","volume"):
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            df = df.dropna(subset=["close","high","low","volume"])
+            # If still insufficient length, bail
+            return df if len(df) >= 40 else None
         except Exception:
             return None
+
 
     def get_stock_price(self, symbol: str) -> Optional[float]:
         # Try Kite quote first
@@ -308,7 +316,9 @@ class StatelessBot:
 
         # Make sure the last 2 ema20 values exist and are finite
         tail2 = ema20.iloc[-2:]
-        if len(tail2) < 2 or tail2.isna().any():
+        if len(tail2) < 2:
+            return None
+        if bool(tail2.isna().any()):
             return None
 
         # Scalar comparisons only (avoid Series truth ambiguity)
