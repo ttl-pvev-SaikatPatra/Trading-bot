@@ -526,6 +526,17 @@ bot = StatelessBot()
 bot.load_saved_token()
 bot.load_positions()
 
+# Load saved universe if available (optional)
+try:
+    with open("universe.json","r") as f:
+        u = json.load(f)
+    bot.universe_version = u.get("version")
+    bot.daily_stock_list = u.get("symbols", [])
+    bot.universe_features = pd.DataFrame(u.get("data", []))
+except Exception:
+    pass
+
+
 # ==================== Routes (UI + cron) ====================
 @app.route("/")
 def home():
