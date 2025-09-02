@@ -310,7 +310,6 @@ class StatelessBot:
         below_vwap = d5["close"].iloc[-1] < vwap.iloc[-1]
         return {"long_ok": up and above_vwap, "short_ok": down and below_vwap, "d5": d5}
 
-
     def mtf_confirmation(self, symbol: str) -> Optional[Dict[str, Any]]:
         d30 = self.fetch_bars(symbol, "30m", 10)
         d5 = self.fetch_bars(symbol, "5m", 2)
@@ -349,7 +348,6 @@ class StatelessBot:
         return {"long_ok": bool(up and above_vwap), "short_ok": bool(down and below_vwap), "d5": d5}
 
 
-
     def generate_signal(self, symbol: str) -> Optional[Tuple[str, float, float]]:
         mtf = self.mtf_confirmation(symbol)
         if not mtf:
@@ -368,6 +366,7 @@ class StatelessBot:
 
         last = float(d5["close"].iloc[-1])
 
+        # 24-bar extremes with min_periods to avoid NaN; use previous completed bar
         highs_24 = d5["high"].rolling(24, min_periods=24).max()
         lows_24 = d5["low"].rolling(24, min_periods=24).min()
         if pd.isna(highs_24.iloc[-2]) or pd.isna(lows_24.iloc[-2]):
@@ -382,8 +381,6 @@ class StatelessBot:
         if mtf["short_ok"] and last < prev_low * (1 - margin):
             return ("SHORT", float(atr), last)
         return None
-
-
 
 
     def calc_qty(self, price: float, atr: float) -> int:
