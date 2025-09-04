@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.logging_config import setup_logging, CorrelationIdMiddleware
 from app.db import models
 from app.db.session import engine
-from app.api import auth, status, controls, cron, universe
+from app.api import auth, status, controls, cron, universe, market_data # Add market_data
 
 # Setup logging before anything else
 setup_logging()
@@ -36,6 +36,7 @@ app.include_router(status.router, prefix="/api")
 app.include_router(controls.router, prefix="/api")
 app.include_router(universe.router, prefix="/api/universe")
 app.include_router(cron.router, prefix="/cron")
+app.include_router(market_data.router, prefix="/api") # Add this line
 
 
 @app.get("/", tags=["Root"])
