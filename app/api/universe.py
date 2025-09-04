@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.services.universe_builder import UniverseBuilder
 from app.models.pydantic_models import UniverseStock
+from app.db.models import Universe
 
 router = APIRouter()
 
