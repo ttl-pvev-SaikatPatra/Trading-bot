@@ -7,13 +7,13 @@ pydantic-settings==2.2.1
 sqlalchemy==2.0.30
 kiteconnect==4.0.0 # official client; ensure build tools present if needed
 yfinance==0.2.38 # pin to avoid transitive drift
-pandas-ta-openbb==0.100.3 # NumPy 2-compatible fork
+pandas-ta==0.3.14b0 # NumPy 2-compatible fork
 requests==2.31.0
 cryptography==42.0.7
 python-dotenv==1.0.1
 aiofiles==23.2.1
 pandas==2.2.3 # 3.13-ready wheel
-numpy==2.1.1 # stable 2.x wheel
+numpy==1.26.4 # stable 2.x wheel
 cython>=3.0.10 # ensures fixed attribute handling if any Cython builds happen
 setuptools>=68 # robust build isolation
 wheel>=0.42 # ensure wheel tooling
