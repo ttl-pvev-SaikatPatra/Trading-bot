@@ -1,0 +1,96 @@
+# File: .github/workflows/scheduler.yml
+
+name: Trading Bot Scheduler
+
+on:
+  # Note: GitHub Actions schedules are in UTC. IST is UTC+5:30.
+  schedule:
+    # 1. Keep Render instance awake during market hours (every 15 mins)
+    # Runs from 08:30 to 16:15 IST on weekdays.
+    - cron: '0,15,30,45 3-10 * * 1-5'
+
+    # 2. Daily pre-market task to build the universe
+    # Runs at 08:45 IST on weekdays.
+    - cron: '15 3 * * 1-5'
+
+    # 3. Run the strategy cycle every 5 minutes during market hours
+    # Runs from 09:20 to 15:25 IST on weekdays.
+    - cron: '20-59/5 3 * * 1-5' # For 09:20 - 09:55 IST
+    - cron: '*/5 4-8 * * 1-5'    # For 10:00 - 14:55 IST
+    - cron: '0-25/5 9 * * 1-5'  # For 15:00 - 15:25 IST
+    
+    # 4. End-of-day square-off
+    # Runs at 15:20 IST on weekdays.
+    - cron: '50 9 * * 1-5'
+
+jobs:
+  # This job pings the /health endpoint to prevent the free Render instance from sleeping.
+  keep-alive:
+    name: Keep Render Instance Awake
+    runs-on: ubuntu-latest
+    # This 'if' condition ensures this job only runs for its specific cron schedule.
+    if: github.event.schedule == '0,15,30,45 3-10 * * 1-5'
+    steps:
+      - name: Ping health endpoint
+        run: curl --fail "${{ secrets.RENDER_APP_URL }}/health"
+
+  # This job triggers the daily universe build.
+  run-daily:
+    name: Run Daily Universe Build
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '15 3 * * 1-5'
+    steps:
+      - name: Generate HMAC signature
+        id: hmac
+        run: |
+          HMAC_SIGNATURE=$(python -c "import hmac, hashlib; print(hmac.new(b'${{ secrets.CRON_SECRET_KEY }}', b'{}', hashlib.sha256).hexdigest())")
+          echo "signature=$HMAC_SIGNATURE" >> $GITHUB_OUTPUT
+      - name: Trigger /cron/daily endpoint
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-HMAC-Signature: ${{ steps.hmac.outputs.signature }}" \
+            -d '{}' \
+            "${{ secrets.RENDER_APP_URL }}/cron/daily"
+
+  # This job runs the main trading strategy cycle.
+  run-strategy-cycle:
+    name: Run Strategy Cycle
+    runs-on: ubuntu-latest
+    # This condition matches any of the three cron schedules for the strategy.
+    if: |
+      github.event.schedule == '20-59/5 3 * * 1-5' ||
+      github.event.schedule == '*/5 4-8 * * 1-5' ||
+      github.event.schedule == '0-25/5 9 * * 1-5'
+    steps:
+      - name: Generate HMAC signature
+        id: hmac
+        run: |
+          HMAC_SIGNATURE=$(python -c "import hmac, hashlib; print(hmac.new(b'${{ secrets.CRON_SECRET_KEY }}', b'{}', hashlib.sha256).hexdigest())")
+          echo "signature=$HMAC_SIGNATURE" >> $GITHUB_OUTPUT
+      - name: Trigger /cron/open endpoint
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-HMAC-Signature: ${{ steps.hmac.outputs.signature }}" \
+            -d '{}' \
+            "${{ secrets.RENDER_APP_URL }}/cron/open"
+
+  # This job triggers the end-of-day square-off.
+  run-close:
+    name: Run End-of-Day Square Off
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '50 9 * * 1-5'
+    steps:
+      - name: Generate HMAC signature
+        id: hmac
+        run: |
+          HMAC_SIGNATURE=$(python -c "import hmac, hashlib; print(hmac.new(b'${{ secrets.CRON_SECRET_KEY }}', b'{}', hashlib.sha256).hexdigest())")
+          echo "signature=$HMAC_SIGNATURE" >> $GITHUB_OUTPUT
+      - name: Trigger /cron/close endpoint
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-HMAC-Signature: ${{ steps.hmac.outputs.signature }}" \
+            -d '{}' \
+            "${{ secrets.RENDER_APP_URL }}/cron/close"
