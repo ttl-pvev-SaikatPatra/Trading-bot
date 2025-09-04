@@ -7,7 +7,8 @@ from cryptography.fernet import Fernet
 from app.core.config import settings
 
 # Initialize Fernet for encryption/decryption
-cipher_suite = Fernet(settings.APP_SECRET_KEY.encode() * (32 // len(settings.APP_SECRET_KEY.encode())))
+# NEW, CLEANER LINE
+cipher_suite = Fernet(settings.APP_SECRET_KEY.encode())
 
 async def verify_hmac_signature(request: Request):
     """Dependency to verify HMAC signature for cron jobs."""
