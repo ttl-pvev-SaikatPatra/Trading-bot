@@ -21,7 +21,28 @@ class OrderManager:
         self.data_provider = MarketDataProvider()
         self.state = self._load_state()
 
-    # ... (the rest of your __init__, _load_state, _save_state methods remain the same) ...
+    def _load_state(self):
+        defaults = {
+            "trading_enabled": False,
+            "dry_run_mode": True,
+            "daily_pnl": 0.0,
+            "last_daily_cron": None,
+            "last_open_cron": None,
+            "last_close_cron": None,
+        }
+        state_db = self.db.query(SystemState).filter(SystemState.key == "main_state").first()
+        if state_db:
+            defaults.update(state_db.value)
+        return defaults
+
+    def _save_state(self):
+        state_db = self.db.query(SystemState).filter(SystemState.key == "main_state").first()
+        if not state_db:
+            state_db = SystemState(key="main_state", value=self.state)
+            self.db.add(state_db)
+        else:
+            state_db.value = self.state
+        self.db.commit()
 
     def run_strategy_cycle(self):
         """
