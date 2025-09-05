@@ -33,11 +33,9 @@ class OrderManager:
         }
         state_db = self.db.query(SystemState).filter(SystemState.key == "main_state").first()
         if state_db:
-            # NEW: Log the loaded state from DB
             log.info("Loading state from database.", extra={"db_state": state_db.value})
             defaults.update(state_db.value)
         else:
-            # NEW: Log that no state was found and defaults are being used
             log.info("No state found in database, using default values.")
         return defaults
 
@@ -49,7 +47,6 @@ class OrderManager:
         else:
             state_db.value = self.state
         
-        # NEW: Log the state being saved
         log.info("Saving new state to database.", extra={"new_state": self.state})
         self.db.commit()
 
@@ -67,7 +64,6 @@ class OrderManager:
             log.error("Kite is not connected. Skipping cycle.")
             return
 
-        # Check daily loss limit
         total_capital = self.get_total_capital()
         daily_loss_limit_amount = -(settings.DAILY_LOSS_LIMIT_PCT * total_capital)
         current_pnl = self.state.get('daily_pnl', 0.0)
@@ -89,7 +85,6 @@ class OrderManager:
         positions = positions_response.get('net', [])
         open_positions = {p['tradingsymbol'] for p in positions if p.get('product') == 'MIS' and p.get('quantity', 0) != 0}
         
-        # NEW: Added more context to logs
         log.info(f"Scanning universe of {len(universe)} stocks.", extra={"universe_size": len(universe)})
         log.info(f"Found {len(open_positions)} open MIS positions.", extra={"open_positions": list(open_positions)})
 
@@ -98,13 +93,10 @@ class OrderManager:
                 f"Max concurrent positions ({settings.MAX_CONCURRENT_POSITIONS}) reached. No new trades will be placed.",
                 extra={"open_positions_count": len(open_positions), "max_positions": settings.MAX_CONCURRENT_POSITIONS}
             )
-            # NEW: We can still check for trailing stop loss on open positions here
-            # self.manage_trailing_stops(open_positions) # Example for future implementation
             return
 
         for symbol in universe:
             if symbol in open_positions:
-                # NEW: Explicitly log skipping symbols with existing positions
                 log.debug(f"Skipping {symbol} as a position is already open.", extra={"symbol": symbol})
                 continue
 
@@ -119,10 +111,12 @@ class OrderManager:
             if signal:
                 self.execute_trade(symbol, signal, last_candle)
                 # Refresh open positions count before checking the limit again
-                open_positions_count = len(self.kite.get_positions().get('net', []))
-                if open_positions_count >= settings.MAX_CONCURRENT_POSITIONS:
-                    log.info("Max positions reached after placing trade. Ending cycle.", extra={"open_positions_count": open_positions_count})
-                    break
+                positions_after_trade = self.kite.get_positions()
+                if positions_after_trade:
+                    open_positions_count = len([p for p in positions_after_trade.get('net', []) if p.get('product') == 'MIS' and p.get('quantity', 0) != 0])
+                    if open_positions_count >= settings.MAX_CONCURRENT_POSITIONS:
+                        log.info("Max positions reached after placing trade. Ending cycle.", extra={"open_positions_count": open_positions_count})
+                        break
     
     def get_total_capital(self):
         margins = self.kite.get_margins()
@@ -132,10 +126,9 @@ class OrderManager:
             return capital
         
         log.error("Failed to fetch margins from broker. Using default capital.", extra={"default_capital": 100000})
-        return 100000 # Default if API fails
+        return 100000
 
     def execute_trade(self, symbol: str, signal: str, candle):
-        ## ENHANCED LOGGING - Step-by-step audit trail for position sizing ##
         log.info(f"Signal '{signal}' found for {symbol}. Evaluating for trade execution.", extra={"symbol": symbol, "signal": signal})
         
         total_capital = self.get_total_capital()
@@ -175,4 +168,66 @@ class OrderManager:
             return
 
         log.info(
-            f"Executing {signal} trade for {quantity} shares of {symbol}.",
+            f"Executing {signal} trade for {quantity} shares of {symbol}.", 
+            extra={
+                "symbol": symbol,
+                "signal": signal,
+                "quantity": quantity,
+                "entry_price": f"{candle['close']:.2f}",
+                "stop_loss": f"{stop_loss_price:.2f}"
+            }
+        )
+
+        if self.state.get('dry_run_mode'):
+            log.warning(f"[DRY RUN] Would place {signal} order for {quantity} {symbol}. No real order sent.", extra={"symbol": symbol, "quantity": quantity})
+            return
+
+        transaction_type = 'BUY' if signal == 'BUY' else 'SELL'
+        tag = f"entry_{symbol}_{int(datetime.now().timestamp())}"
+        entry_order_id = self.kite.place_mis_order(symbol, transaction_type, quantity, tag)
+        
+        if entry_order_id:
+            log.info(f"Entry order placed successfully for {symbol}. Order ID: {entry_order_id}", extra={"symbol": symbol, "order_id": entry_order_id})
+            sl_transaction_type = 'SELL' if signal == 'BUY' else 'BUY'
+            sl_tag = f"sl_{symbol}_{int(datetime.now().timestamp())}"
+            sl_price_rounded = self.round_to_tick(stop_loss_price)
+            sl_order_id = self.kite.place_sl_order(symbol, sl_transaction_type, quantity, sl_price_rounded, sl_tag)
+            if sl_order_id:
+                log.info(f"Stop-loss order placed successfully for {symbol}. Order ID: {sl_order_id}", extra={"symbol": symbol, "order_id": sl_order_id, "trigger_price": sl_price_rounded})
+            else:
+                log.error(f"Failed to place stop-loss order for {symbol} after entry.", extra={"symbol": symbol, "entry_order_id": entry_order_id})
+        else:
+            log.error(f"Failed to place entry order for {symbol}.", extra={"symbol": symbol})
+
+    @staticmethod
+    def round_to_tick(price: float, tick_size: float = 0.05) -> float:
+        return round(price / tick_size) * tick_size
+
+    def toggle_trading(self, enable: bool):
+        self.state['trading_enabled'] = enable
+        log.info(f"Trading has been {'ENABLED' if enable else 'DISABLED'}.", extra={"trading_enabled": enable})
+        self._save_state()
+
+    def toggle_dry_run(self, enable: bool):
+        self.state['dry_run_mode'] = enable
+        log.info(f"Dry run mode is now {'ON' if enable else 'OFF'}.", extra={"dry_run_mode": enable})
+        self._save_state()
+
+    def update_cron_timestamp(self, cron_type: str):
+        timestamp = datetime.now().isoformat()
+        self.state[f'last_{cron_type}_cron'] = timestamp
+        log.info(f"Updated cron timestamp for '{cron_type}'.", extra={"cron_type": cron_type, "timestamp": timestamp})
+        self._save_state()
+
+    def square_off_all_positions(self):
+        log.info("Initiating end-of-day square off process.")
+        if self.state.get('dry_run_mode'):
+            log.warning("[DRY RUN] Would square off all MIS positions and cancel pending orders.")
+            return
+        
+        try:
+            self.kite.square_off_all()
+            log.info("End-of-day square off process completed successfully.")
+        except Exception as e:
+            # THIS IS THE LINE (approx. 177) that had the error. I've fixed it.
+            log.error(f"An error occurred during the EOD square off process: {e}", exc_info=True)
