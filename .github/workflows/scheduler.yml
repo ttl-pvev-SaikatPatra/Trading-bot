@@ -38,7 +38,7 @@ jobs:
   run-daily:
     name: Run Daily Universe Build
     runs-on: ubuntu-latest
-    if: github.event.schedule == '15 3 * * 1-5'
+    if: github.event.schedule == '48 3 * * 1-5'
     steps:
       - name: Generate HMAC signature
         id: hmac
