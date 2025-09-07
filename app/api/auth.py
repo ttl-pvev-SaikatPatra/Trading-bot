@@ -1,36 +1,84 @@
-# File: app/api/auth.py
+import os
+import sqlite3
+from datetime import datetime, timedelta
 
-import logging
-from fastapi import APIRouter, Depends, Request, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
+
 from app.core.config import settings
-from app.db.session import get_db
-from app.services.kite_client import KiteClient
+from app.dependencies import get_kite_client
+from app.db.database import get_db
 
-router = APIRouter()
-log = logging.getLogger(__name__)
+router = APIRouter(tags=["Auth"], prefix="/auth")
 
-@router.get("/login", tags=["Authentication"])
-def login(db: Session = Depends(get_db)):
-    """Redirects the user to the Kite login page."""
-    kite_client = KiteClient(db)
-    login_url = kite_client.get_login_url()
-    log.info("Redirecting user to Kite login page.")
-    return RedirectResponse(url=login_url)
+class TokenData(BaseModel):
+    user_id: str
+    access_token: str
+    public_token: str
+    expiry: datetime
 
-@router.get("/callback", tags=["Authentication"])
-def callback(request: Request, request_token: str, db: Session = Depends(get_db)):
-    """Handles the callback from Kite after successful login."""
-    log.info(f"Received callback with request_token: {request_token}")
-    kite_client = KiteClient(db)
-    if kite_client.generate_session(request_token):
-        log.info("Session generated successfully. Redirecting to frontend dashboard.")
-        # In a real app, you would redirect to your frontend URL
-        return {"status": "success", "message": "Authentication successful. You can close this window."}
-    else:
-        log.error("Failed to generate session.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not generate session. Check logs.",
+@router.get("/login")
+def login_route(kite_client=Depends(get_kite_client)):
+    """
+    Redirects the user to the Zerodha Kite login page.
+    The Zerodha API Key and Secret are loaded from environment variables.
+    """
+    try:
+        login_url = kite_client.login_url()
+        return RedirectResponse(login_url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate login URL: {str(e)}")
+
+@router.get("/callback")
+def auth_callback(
+    request_token: str,
+    db: sqlite3.Connection = Depends(get_db),
+    kite_client=Depends(get_kite_client)
+):
+    """
+    Handles the redirect from Zerodha after successful login.
+    Exchanges the request_token for an access_token and persists it.
+    """
+    if not request_token:
+        raise HTTPException(status_code=400, detail="Missing request_token in callback.")
+
+    try:
+        # 1. Exchange the request_token for the access_token
+        data = kite_client.generate_session(request_token, api_secret=settings.ZERODHA_API_SECRET)
+        access_token = data.get("access_token")
+        public_token = data.get("public_token")
+        user_id = data.get("user_id")
+
+        if not access_token or not user_id:
+            raise HTTPException(status_code=500, detail="Failed to retrieve access_token or user_id.")
+        
+        # 2. Persist the token securely in SQLite
+        # Using a simple table for this purpose. In a production app, you'd want to handle
+        # this with proper encryption and user session management.
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO sessions (user_id, access_token, public_token, last_login) 
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, access_token, public_token, datetime.now())
         )
+        db.commit()
+        
+        # 3. Redirect to the frontend's dashboard URL
+        # THIS IS THE CRITICAL FIX. The URL must be your Vercel frontend URL.
+        # It's best practice to pass the user_id or a success status as a query parameter.
+        # This allows the frontend to know the login was successful and trigger a fetch
+        # for user-specific data, like funds.
+        frontend_redirect_url = f"{settings.FRONTEND_URL}/dashboard?login_status=success&user_id={user_id}"
+        print(f"Redirecting to frontend URL: {frontend_redirect_url}") # Debug log
+
+        return RedirectResponse(url=frontend_redirect_url, status_code=status.HTTP_302_FOUND)
+
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error during auth callback: {str(e)}")
+        # Redirect back to the frontend's login page with an error status
+        error_redirect_url = f"{settings.FRONTEND_URL}/login?login_status=failed&error={e}"
+        return RedirectResponse(url=error_redirect_url, status_code=status.HTTP_302_FOUND)
