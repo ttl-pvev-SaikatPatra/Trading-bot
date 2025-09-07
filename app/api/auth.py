@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.dependencies import get_kite_client
-from app.db.database import get_db
+from app.db.session import get_db
 
 router = APIRouter(tags=["Auth"], prefix="/auth")
 
