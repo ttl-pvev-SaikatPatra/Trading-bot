@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "sqlite:///./trading_bot.db"
+    SQLITE_DB_PATH: str = "database.db" # Add this line
 
     # Risk Management
     RISK_PCT_PER_TRADE: float = 0.005
