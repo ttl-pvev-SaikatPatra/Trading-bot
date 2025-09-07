@@ -14,7 +14,7 @@ cryptography==42.0.7 # manylinux wheel; no Rust build needed
 python-dotenv==1.0.1 # pure Python
 aiofiles==23.2.1 # pure Python
 pandas==2.2.3 # cp313 manylinux wheel
-numpy==1.26.4 # last 1.x LTS; avoids pandas-ta issues
+numpy>=2.2.6 # last 1.x LTS; avoids pandas-ta issues
 cython>=3.0.10 # defensive; Cython 3.0.6+ fixes attribute issue
 setuptools>=68 # build tooling
 wheel>=0.42 # build tooling
