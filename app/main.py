@@ -12,6 +12,7 @@ from app.api import auth, status, controls, cron, universe, market_data # Add ma
 setup_logging()
 
 # Create database tables
+# This now works because engine is imported from session, and session imports models
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
