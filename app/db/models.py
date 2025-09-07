@@ -2,7 +2,11 @@
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON
 from sqlalchemy.sql import func
+from sqlalchemy.orm import declarative_base
 from .session import Base
+
+# Define the declarative base here
+Base = declarative_base()
 
 class UserSession(Base):
     __tablename__ = "user_sessions"
