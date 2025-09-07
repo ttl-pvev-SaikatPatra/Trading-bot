@@ -1,21 +1,27 @@
 # File: requirements.txt
 
-fastapi==0.111.0 # works on py3.13; pairs with Starlette 0.37.x
-uvicorn==0.29.0 # avoid [standard] extra to skip httptools/uvloop on py3.13
-pydantic==2.9.2 # has cp313 wheels
-pydantic-core==2.23.4 # cp313 manylinux wheel; prevents maturin build
-pydantic-settings==2.2.1 # pure Python
-sqlalchemy==2.0.30 # wheel available
-kiteconnect==4.0.0 # pure Python
-yfinance==0.2.38 # pure Python; stable pin
-pandas-ta>=0.4.67b0 # requires NumPy 1.26.x; compatible combo
-requests==2.31.0 # pure Python
-cryptography==42.0.7 # manylinux wheel; no Rust build needed
-python-dotenv==1.0.1 # pure Python
-aiofiles==23.2.1 # pure Python
-pandas==2.2.3 # cp313 manylinux wheel
-numpy>=2.2.6 # last 1.x LTS; avoids pandas-ta issues
-cython>=3.0.10 # defensive; Cython 3.0.6+ fixes attribute issue
-setuptools>=68 # build tooling
-wheel>=0.42 # build tooling
+# Core FastAPI stack
+fastapi==0.111.0
+uvicorn==0.29.0
+pydantic==2.9.2
+pydantic-core==2.23.4
+pydantic-settings==2.2.1
+sqlalchemy==2.0.30
 
+# Trading and Data stack
+kiteconnect==4.0.0
+yfinance==0.2.38
+pandas>=2.3.2  # Corrected: Matches pandas-ta requirement
+pandas-ta>=0.4.67b0 # No change needed, but now compatible
+numpy>=2.2.6 # Corrected: Avoids conflicts with pandas-ta
+requests==2.31.0
+
+# General utilities
+cryptography==42.0.7
+python-dotenv==1.0.1
+aiofiles==23.2.1
+
+# Build tooling
+cython>=3.0.10
+setuptools>=68
+wheel>=0.42
