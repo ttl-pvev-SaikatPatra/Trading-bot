@@ -8,7 +8,7 @@ pydantic-settings==2.2.1 # pure Python
 sqlalchemy==2.0.30 # wheel available
 kiteconnect==4.0.0 # pure Python
 yfinance==0.2.38 # pure Python; stable pin
-pandas-ta==0.3.14b0 # requires NumPy 1.26.x; compatible combo
+pandas-ta>=0.4.67b0 # requires NumPy 1.26.x; compatible combo
 requests==2.31.0 # pure Python
 cryptography==42.0.7 # manylinux wheel; no Rust build needed
 python-dotenv==1.0.1 # pure Python
