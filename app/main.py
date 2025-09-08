@@ -32,7 +32,7 @@ app.add_middleware(
 )
 
 # API Routers
-app.include_router(auth.router, prefix="/auth")
+app.include_router(auth.router)
 app.include_router(status.router, prefix="/api")
 app.include_router(controls.router, prefix="/api")
 app.include_router(universe.router, prefix="/api/universe")
